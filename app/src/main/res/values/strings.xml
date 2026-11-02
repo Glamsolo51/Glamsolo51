@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">PhoneHop</string>
+
+    <!-- Home -->
+    <string name="home_title">Move to a new phone</string>
+    <string name="home_subtitle">Apps and files over Wi‑Fi. No cables, no cloud.</string>
+    <string name="action_send">Send</string>
+    <string name="action_send_hint">Apps &amp; files from this phone</string>
+    <string name="action_receive">Receive</string>
+    <string name="action_receive_hint">Make this phone visible</string>
+    <string name="rename_device_title">Phone name</string>
+    <string name="rename_device_hint">Other phones will see this name</string>
+    <string name="network_ready">Wi‑Fi ready</string>
+    <string name="network_missing_title">No Wi‑Fi</string>
+    <string name="network_missing">Connect both phones to the same Wi‑Fi or turn on a hotspot on one of them</string>
+    <string name="steps_title">How it works</string>
+    <string name="step_1">Connect both phones to the same Wi‑Fi</string>
+    <string name="step_2">On the new phone tap Receive</string>
+    <string name="step_3">On the old one tap Send and pick it</string>
+
+    <!-- Common -->
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+    <string name="cd_back">Back</string>
+    <string name="cd_remove">Remove</string>
+    <string name="next">Next</string>
+    <string name="done">Done</string>
+    <string name="retry">Try again</string>
+    <string name="open">Open</string>
+    <string name="per_second">%1$s/s</string>
+    <string name="dot_join" translatable="false">%1$s · %2$s</string>
+
+    <!-- Selection -->
+    <string name="select_title">What to send?</string>
+    <string name="tab_apps">Apps</string>
+    <string name="tab_files">Files</string>
+    <string name="tab_with_count" translatable="false">%1$s · %2$d</string>
+    <string name="search_apps">Search apps</string>
+    <string name="select_all">Select all</string>
+    <string name="clear_selection">Clear</string>
+    <string name="apps_loading">Loading apps…</string>
+    <string name="apps_empty">No apps found</string>
+    <string name="apps_note">Apps are sent without their data: chats and accounts are restored by signing in on the new phone.</string>
+    <string name="pick_media">Photos &amp; videos</string>
+    <string name="pick_files">Files</string>
+    <string name="pick_folder">Folder</string>
+    <string name="files_empty_title">Nothing here yet</string>
+    <string name="files_empty_hint">Add photos, videos, documents or a whole folder</string>
+    <string name="reading_folder">Reading the folder…</string>
+    <string name="selection_empty">Choose what to send</string>
+    <string name="size_unknown">size unknown</string>
+
+    <!-- Devices -->
+    <string name="devices_title">Send to…</string>
+    <string name="devices_searching">Looking for phones nearby</string>
+    <string name="devices_hint">On the other phone open PhoneHop and tap Receive</string>
+    <string name="devices_found">Found nearby</string>
+    <string name="manual_address">Enter address</string>
+    <string name="manual_address_title">Receiver address</string>
+    <string name="manual_address_hint">It is shown on the receiving phone, e.g. 192.168.1.23</string>
+    <string name="manual_address_invalid">Enter an address like 192.168.1.23</string>
+    <string name="connect">Connect</string>
+
+    <!-- Transfer -->
+    <string name="preparing">Getting files ready…</string>
+    <string name="connecting_to">Connecting to %1$s…</string>
+    <string name="waiting_answer">Waiting for “%1$s”</string>
+    <string name="waiting_answer_hint">Tap Accept on the other phone</string>
+    <string name="sending_to">Sending to “%1$s”</string>
+    <string name="receiving_from">Receiving from “%1$s”</string>
+    <string name="time_left">%1$s left</string>
+    <string name="items_progress">%1$d of %2$d</string>
+    <string name="cancel_transfer">Cancel</string>
+    <string name="cancel_confirm_title">Stop the transfer?</string>
+    <string name="cancel_confirm_text">Everything that has already arrived stays on the receiving phone.</string>
+    <string name="keep_going">Continue</string>
+    <string name="stop">Stop</string>
+    <string name="sent_title">Sent!</string>
+    <string name="received_title">Received!</string>
+    <string name="done_summary">%1$s · %2$s in %3$s</string>
+    <string name="average_speed">Average speed %1$s</string>
+    <string name="failed_title">Transfer failed</string>
+    <string name="cancelled_title">Transfer cancelled</string>
+
+    <!-- Errors -->
+    <string name="error_connection_failed">Couldn’t reach the other phone. Check that both are on the same Wi‑Fi and the other one shows the Receive screen.</string>
+    <string name="error_connection_lost">The connection was lost. Keep the phones close to the router and try again.</string>
+    <string name="error_declined">The other phone declined the transfer.</string>
+    <string name="error_busy">The other phone is busy with another transfer.</string>
+    <string name="error_incompatible">Update PhoneHop on both phones.</string>
+    <string name="error_peer_cancelled">The other phone cancelled the transfer.</string>
+    <string name="error_remote">The other phone couldn’t save the data. Is there enough free space?</string>
+    <string name="error_checksum">Data was damaged on the way. Try again.</string>
+    <string name="error_protocol">Unexpected answer from the other phone.</string>
+    <string name="error_source">Couldn’t read a file on this phone.</string>
+    <string name="error_storage">Couldn’t save the data. Check free space.</string>
+    <string name="error_timeout">The other phone didn’t answer.</string>
+    <string name="error_server">Couldn’t start receiving.</string>
+
+    <!-- Receive -->
+    <string name="receive_title">Receive</string>
+    <string name="receive_ready">Ready to receive</string>
+    <string name="receive_visible_as">Visible as “%1$s”</string>
+    <string name="receive_hint">On the old phone tap Send and pick this phone</string>
+    <string name="receive_address">Address for manual connection</string>
+    <string name="receive_starting">Starting…</string>
+    <string name="incoming_title">“%1$s” wants to send you</string>
+    <string name="accept">Accept</string>
+    <string name="decline">Decline</string>
+    <string name="request_withdrawn">“%1$s” cancelled the request</string>
+    <string name="received_apps">Apps</string>
+    <string name="received_files">Files</string>
+    <string name="install">Install</string>
+    <string name="install_all">Install all</string>
+    <string name="install_queued">In queue</string>
+    <string name="installing">Installing…</string>
+    <string name="installed">Installed</string>
+    <string name="install_error_aborted">Cancelled</string>
+    <string name="install_error_conflict">Conflicts with the installed version</string>
+    <string name="install_error_incompatible">Not compatible with this phone</string>
+    <string name="install_error_storage">Not enough space</string>
+    <string name="install_error_blocked">Blocked by the system</string>
+    <string name="install_error_other">Couldn’t install</string>
+    <string name="install_permission_title">Allow installing apps</string>
+    <string name="install_permission_text">Android asks you to allow PhoneHop to install apps. Turn the switch on and come back.</string>
+    <string name="open_settings">Open settings</string>
+    <string name="files_saved_to">Saved to %1$s</string>
+    <string name="receive_more">Receive more</string>
+    <string name="no_app_to_open">No app can open this file</string>
+    <string name="storage_permission_needed">PhoneHop needs storage access to save received files</string>
+
+    <!-- Notifications -->
+    <string name="channel_transfer">Transfers</string>
+    <string name="channel_incoming">Incoming requests</string>
+    <string name="notif_listening">Ready to receive</string>
+    <string name="notif_listening_text">Visible to phones nearby as “%1$s”</string>
+    <string name="notif_connecting">Connecting…</string>
+    <string name="notif_sending">Sending · %1$d%%</string>
+    <string name="notif_receiving">Receiving · %1$d%%</string>
+    <string name="notif_incoming">Incoming transfer from “%1$s”</string>
+    <string name="notif_incoming_text">Open PhoneHop to accept it</string>
+    <string name="notif_stop">Stop</string>
+
+    <!-- Durations -->
+    <string name="duration_seconds">%1$d s</string>
+    <string name="duration_minutes">%1$d min %2$d s</string>
+    <string name="duration_hours">%1$d h %2$d min</string>
+
+    <plurals name="apps_count">
+        <item quantity="one">%d app</item>
+        <item quantity="other">%d apps</item>
+    </plurals>
+    <plurals name="files_count">
+        <item quantity="one">%d file</item>
+        <item quantity="other">%d files</item>
+    </plurals>
+    <plurals name="items_count">
+        <item quantity="one">%d item</item>
+        <item quantity="other">%d items</item>
+    </plurals>
+</resources>

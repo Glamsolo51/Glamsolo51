@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Home -->
+    <string name="home_title">Переезд на новый телефон</string>
+    <string name="home_subtitle">Приложения и файлы по Wi‑Fi. Без кабелей и облака.</string>
+    <string name="action_send">Отправить</string>
+    <string name="action_send_hint">Приложения и файлы с этого телефона</string>
+    <string name="action_receive">Получить</string>
+    <string name="action_receive_hint">Сделать телефон видимым</string>
+    <string name="rename_device_title">Имя телефона</string>
+    <string name="rename_device_hint">Под этим именем телефон увидят другие</string>
+    <string name="network_ready">Wi‑Fi готов</string>
+    <string name="network_missing_title">Нет Wi‑Fi</string>
+    <string name="network_missing">Подключите оба телефона к одной Wi‑Fi сети или включите точку доступа на одном из них</string>
+    <string name="steps_title">Как это работает</string>
+    <string name="step_1">Подключите оба телефона к одной Wi‑Fi сети</string>
+    <string name="step_2">На новом телефоне нажмите «Получить»</string>
+    <string name="step_3">На старом — «Отправить» и выберите новый</string>
+
+    <!-- Common -->
+    <string name="save">Сохранить</string>
+    <string name="cancel">Отмена</string>
+    <string name="cd_back">Назад</string>
+    <string name="cd_remove">Убрать</string>
+    <string name="next">Далее</string>
+    <string name="done">Готово</string>
+    <string name="retry">Повторить</string>
+    <string name="open">Открыть</string>
+    <string name="per_second">%1$s/с</string>
+
+    <!-- Selection -->
+    <string name="select_title">Что отправить?</string>
+    <string name="tab_apps">Приложения</string>
+    <string name="tab_files">Файлы</string>
+    <string name="search_apps">Поиск приложений</string>
+    <string name="select_all">Выбрать все</string>
+    <string name="clear_selection">Сбросить</string>
+    <string name="apps_loading">Загружаем приложения…</string>
+    <string name="apps_empty">Приложения не найдены</string>
+    <string name="apps_note">Приложения передаются без данных: чаты и аккаунты восстановятся после входа на новом телефоне.</string>
+    <string name="pick_media">Фото и видео</string>
+    <string name="pick_files">Файлы</string>
+    <string name="pick_folder">Папка</string>
+    <string name="files_empty_title">Пока пусто</string>
+    <string name="files_empty_hint">Добавьте фото, видео, документы или целую папку</string>
+    <string name="reading_folder">Читаем папку…</string>
+    <string name="selection_empty">Выберите, что отправить</string>
+    <string name="size_unknown">размер неизвестен</string>
+
+    <!-- Devices -->
+    <string name="devices_title">Куда отправить?</string>
+    <string name="devices_searching">Ищем телефоны рядом</string>
+    <string name="devices_hint">На другом телефоне откройте PhoneHop и нажмите «Получить»</string>
+    <string name="devices_found">Найдены рядом</string>
+    <string name="manual_address">Ввести адрес</string>
+    <string name="manual_address_title">Адрес получателя</string>
+    <string name="manual_address_hint">Он показан на телефоне‑получателе, например 192.168.1.23</string>
+    <string name="manual_address_invalid">Введите адрес вида 192.168.1.23</string>
+    <string name="connect">Подключиться</string>
+
+    <!-- Transfer -->
+    <string name="preparing">Готовим файлы…</string>
+    <string name="connecting_to">Подключаемся к %1$s…</string>
+    <string name="waiting_answer">Ждём ответа от «%1$s»</string>
+    <string name="waiting_answer_hint">Нажмите «Принять» на другом телефоне</string>
+    <string name="sending_to">Отправка на «%1$s»</string>
+    <string name="receiving_from">Получение с «%1$s»</string>
+    <string name="time_left">осталось %1$s</string>
+    <string name="items_progress">%1$d из %2$d</string>
+    <string name="cancel_transfer">Отменить</string>
+    <string name="cancel_confirm_title">Остановить передачу?</string>
+    <string name="cancel_confirm_text">Всё, что уже передано, останется на телефоне‑получателе.</string>
+    <string name="keep_going">Продолжить</string>
+    <string name="stop">Остановить</string>
+    <string name="sent_title">Отправлено!</string>
+    <string name="received_title">Получено!</string>
+    <string name="done_summary">%1$s · %2$s за %3$s</string>
+    <string name="average_speed">Средняя скорость %1$s</string>
+    <string name="failed_title">Передача не удалась</string>
+    <string name="cancelled_title">Передача отменена</string>
+
+    <!-- Errors -->
+    <string name="error_connection_failed">Не удалось связаться с телефоном. Проверьте, что оба в одной Wi‑Fi сети, а на втором открыт экран «Получить».</string>
+    <string name="error_connection_lost">Соединение прервалось. Держите телефоны ближе к роутеру и попробуйте ещё раз.</string>
+    <string name="error_declined">Получатель отклонил передачу.</string>
+    <string name="error_busy">Телефон занят другой передачей.</string>
+    <string name="error_incompatible">Обновите PhoneHop на обоих телефонах.</string>
+    <string name="error_peer_cancelled">Другой телефон отменил передачу.</string>
+    <string name="error_remote">Получатель не смог сохранить данные. Хватает ли места?</string>
+    <string name="error_checksum">Данные повредились при передаче. Попробуйте ещё раз.</string>
+    <string name="error_protocol">Неожиданный ответ от другого телефона.</string>
+    <string name="error_source">Не удалось прочитать файл на этом телефоне.</string>
+    <string name="error_storage">Не удалось сохранить данные. Проверьте свободное место.</string>
+    <string name="error_timeout">Другой телефон не ответил.</string>
+    <string name="error_server">Не удалось начать приём.</string>
+
+    <!-- Receive -->
+    <string name="receive_title">Получение</string>
+    <string name="receive_ready">Готов к приёму</string>
+    <string name="receive_visible_as">Виден как «%1$s»</string>
+    <string name="receive_hint">На старом телефоне нажмите «Отправить» и выберите этот телефон</string>
+    <string name="receive_address">Адрес для ручного подключения</string>
+    <string name="receive_starting">Запускаем…</string>
+    <string name="incoming_title">«%1$s» хочет передать вам</string>
+    <string name="accept">Принять</string>
+    <string name="decline">Отклонить</string>
+    <string name="request_withdrawn">«%1$s» отменил запрос</string>
+    <string name="received_apps">Приложения</string>
+    <string name="received_files">Файлы</string>
+    <string name="install">Установить</string>
+    <string name="install_all">Установить все</string>
+    <string name="install_queued">В очереди</string>
+    <string name="installing">Установка…</string>
+    <string name="installed">Установлено</string>
+    <string name="install_error_aborted">Отменено</string>
+    <string name="install_error_conflict">Конфликт с установленной версией</string>
+    <string name="install_error_incompatible">Несовместимо с этим телефоном</string>
+    <string name="install_error_storage">Недостаточно места</string>
+    <string name="install_error_blocked">Заблокировано системой</string>
+    <string name="install_error_other">Не удалось установить</string>
+    <string name="install_permission_title">Разрешите установку приложений</string>
+    <string name="install_permission_text">Android просит разрешить PhoneHop устанавливать приложения. Включите переключатель и вернитесь.</string>
+    <string name="open_settings">Открыть настройки</string>
+    <string name="files_saved_to">Сохранено в %1$s</string>
+    <string name="receive_more">Принять ещё</string>
+    <string name="no_app_to_open">Нет приложения, чтобы открыть этот файл</string>
+    <string name="storage_permission_needed">PhoneHop нужен доступ к памяти, чтобы сохранять полученные файлы</string>
+
+    <!-- Notifications -->
+    <string name="channel_transfer">Передачи</string>
+    <string name="channel_incoming">Входящие запросы</string>
+    <string name="notif_listening">Готов к приёму</string>
+    <string name="notif_listening_text">Виден для телефонов рядом как «%1$s»</string>
+    <string name="notif_connecting">Подключение…</string>
+    <string name="notif_sending">Отправка · %1$d%%</string>
+    <string name="notif_receiving">Получение · %1$d%%</string>
+    <string name="notif_incoming">Входящая передача от «%1$s»</string>
+    <string name="notif_incoming_text">Откройте PhoneHop, чтобы принять</string>
+    <string name="notif_stop">Стоп</string>
+
+    <!-- Durations -->
+    <string name="duration_seconds">%1$d с</string>
+    <string name="duration_minutes">%1$d мин %2$d с</string>
+    <string name="duration_hours">%1$d ч %2$d мин</string>
+
+    <plurals name="apps_count">
+        <item quantity="one">%d приложение</item>
+        <item quantity="few">%d приложения</item>
+        <item quantity="many">%d приложений</item>
+        <item quantity="other">%d приложения</item>
+    </plurals>
+    <plurals name="files_count">
+        <item quantity="one">%d файл</item>
+        <item quantity="few">%d файла</item>
+        <item quantity="many">%d файлов</item>
+        <item quantity="other">%d файла</item>
+    </plurals>
+    <plurals name="items_count">
+        <item quantity="one">%d объект</item>
+        <item quantity="few">%d объекта</item>
+        <item quantity="many">%d объектов</item>
+        <item quantity="other">%d объекта</item>
+    </plurals>
+</resources>

@@ -1,0 +1,20 @@
+# Gradle / build
+.gradle/
+build/
+**/build/
+!dist/
+.kotlin/
+captures/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Local config & secrets
+local.properties
+keystore.properties
+*.jks
+*.keystore
+!app/src/test/**/*.keystore

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<lint>
+    <!-- targetSdk 36 is deliberate: Android 17 (API 37) behaviour changes for local
+         network access are not adopted yet. Revisit when raising targetSdk. -->
+    <issue id="OldTargetApi" severity="ignore" />
+</lint>

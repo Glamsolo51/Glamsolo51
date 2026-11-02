@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Old phone -->
+    <path
+        android:pathData="M31,47h12a3,3 0 0,1 3,3v25a3,3 0 0,1 -3,3h-12a3,3 0 0,1 -3,-3v-25a3,3 0 0,1 3,-3z"
+        android:strokeWidth="4"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="28" android:startY="47"
+                android:endX="46" android:endY="78"
+                android:startColor="#FF22C3FF"
+                android:endColor="#FF2EE6A6" />
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M34,72h6"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:strokeColor="#FF2EE6A6" />
+
+    <!-- New phone -->
+    <path
+        android:pathData="M65,47h12a3,3 0 0,1 3,3v25a3,3 0 0,1 -3,3h-12a3,3 0 0,1 -3,-3v-25a3,3 0 0,1 3,-3z"
+        android:strokeWidth="4"
+        android:strokeLineJoin="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="62" android:startY="47"
+                android:endX="80" android:endY="78"
+                android:startColor="#FF7C5CFF"
+                android:endColor="#FFFF5FCB" />
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M68,72h6"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:strokeColor="#FFFF5FCB" />
+
+    <!-- The hop -->
+    <path
+        android:pathData="M37,41Q54,13 71,40"
+        android:strokeWidth="5.5"
+        android:strokeLineCap="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="37" android:startY="40"
+                android:endX="72" android:endY="40"
+                android:startColor="#FF22C3FF"
+                android:centerColor="#FF7C5CFF"
+                android:endColor="#FFFF5FCB" />
+        </aapt:attr>
+    </path>
+    <path
+        android:pathData="M72.1,31.1L71,40L62.4,37.4"
+        android:strokeWidth="5.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeColor="#FFFF5FCB" />
+</vector>
