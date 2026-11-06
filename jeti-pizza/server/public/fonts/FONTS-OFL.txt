@@ -1,7 +1,7 @@
 Fonts bundled in app/src/main/res/font
 
 Manrope: Copyright 2019 The Manrope Project Authors (https://github.com/googlefonts/manrope)
-Unbounded: Copyright 2022 The Unbounded Project Authors (https://github.com/googlefonts/unbounded)
+Caveat: Copyright 2014 The Caveat Project Authors (https://github.com/googlefonts/caveat)
 
 Both fonts are licensed under the SIL Open Font License, Version 1.1:
 

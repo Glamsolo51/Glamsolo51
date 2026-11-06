@@ -18,8 +18,8 @@ android {
         applicationId = "com.glamsolo.yetipizza"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
         // Plain-http builds are for testing: they let you type the server address (a computer on the same Wi-Fi).
         buildConfigField("boolean", "SERVER_EDITABLE", serverUrl.startsWith("http://").toString())
@@ -100,4 +100,6 @@ dependencies {
     testImplementation(libs.roborazzi)
     testImplementation(libs.roborazzi.compose)
     testImplementation(libs.roborazzi.junit.rule)
+    // Independent QR reader: checks the codes the server draws for bank payments.
+    testImplementation(libs.zxing.core)
 }

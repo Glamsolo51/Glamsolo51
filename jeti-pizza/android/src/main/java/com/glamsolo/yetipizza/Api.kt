@@ -29,6 +29,9 @@ data class ShopInfo(
     /** Orders are taken from [open] until this time; servers before it only sent [close]. */
     val lastOrder: String = close,
     val orderingOpen: Boolean = isOpen,
+    /** Paying by SBP transfer to the pizzeria's phone number is switched on. */
+    val transfer: Boolean = false,
+    val payPhone: String = "",
 )
 
 data class Category(val id: String, val name: String)
@@ -41,9 +44,26 @@ data class MenuItem(
     val unit: String,
     val price: Int,
     val available: Boolean,
+    /** Path on the server, e.g. /img/products/fries.webp; empty when there is no photo. */
+    val photo: String = "",
+    /** Id of the box or cup added to the order for each of these. */
+    val pack: String = "",
+    val tags: List<String> = emptyList(),
 )
 
-data class Menu(val info: ShopInfo, val categories: List<Category>, val items: List<MenuItem>)
+data class Tag(val id: String, val name: String)
+
+data class Menu(
+    val info: ShopInfo,
+    val categories: List<Category>,
+    val items: List<MenuItem>,
+    val tags: List<Tag> = emptyList(),
+    /** Slogan the staff set in the web cabinet. */
+    val tagline: String = "24 лучшие пиццы в городе Канаш",
+) {
+    /** Boxes and cups: never picked by hand, the cart adds them. */
+    val packIds: Set<String> get() = items.mapNotNull { it.pack.ifBlank { null } }.toSet()
+}
 
 data class OrderLine(val id: String, val name: String, val unit: String, val price: Int, val qty: Int)
 
@@ -65,6 +85,12 @@ data class Order(
     val token: String = "",
     /** Last change of the status; the customer's screen waits for a newer one. */
     val updatedAt: Long = createdAt,
+    /** "cash" at pickup or "transfer"; paymentStatus: none, awaiting, claimed (customer says paid), paid. */
+    val payment: String = "cash",
+    val paymentStatus: String = "none",
+    val payPhone: String = "",
+    val payRecipient: String = "",
+    val payBank: String = "",
 )
 
 data class ReportRow(val name: String, val unit: String, val category: String, val qty: Int, val revenue: Int, val share: Double)
@@ -84,6 +110,9 @@ data class Settings(val acceptingOrders: Boolean, val cooldownMinutes: Int)
 /** Blocking client for jeti-pizza/server; call it off the main thread. */
 class Api(private val baseUrl: String, var token: String? = null) {
 
+    /** Full address of a picture path from the menu. */
+    fun url(path: String) = baseUrl + path
+
     fun menu(): Menu = call("GET", "/api/menu").toMenu()
 
     fun createOrder(
@@ -93,11 +122,12 @@ class Api(private val baseUrl: String, var token: String? = null) {
         pickupTime: String,
         comment: String,
         cart: Map<String, Int>,
+        payment: String = "cash",
     ): Order = call(
         "POST", "/api/orders",
         JSONObject()
             .put("name", name).put("phone", phone).put("email", email)
-            .put("pickupTime", pickupTime).put("comment", comment).put("source", "app")
+            .put("pickupTime", pickupTime).put("comment", comment).put("source", "app").put("payment", payment)
             .put("items", JSONArray(cart.map { (id, qty) -> JSONObject().put("id", id).put("qty", qty) })),
     ).toOrder()
 
@@ -107,6 +137,11 @@ class Api(private val baseUrl: String, var token: String? = null) {
      */
     fun order(id: Long, token: String, since: Long? = null): Order =
         call("GET", "/api/orders/$id?token=${enc(token)}" + (since?.let { "&since=$it" } ?: ""), readTimeoutMs = if (since != null) 40_000 else 15_000).toOrder()
+
+    /** The customer says the transfer is sent; staff confirm it after checking the bank. */
+    fun claimPaid(id: Long, token: String): Order = call("POST", "/api/orders/$id/paid?token=${enc(token)}").toOrder()
+
+    fun confirmPayment(id: Long): Order = call("POST", "/api/admin/orders/$id/payment", JSONObject().put("status", "paid")).toOrder()
 
     fun login(login: String, password: String): String =
         call("POST", "/api/admin/login", JSONObject().put("login", login).put("password", password)).getString("token")
@@ -195,7 +230,8 @@ private fun <T> JSONArray.map(f: (JSONObject) -> T): List<T> = (0 until length()
 
 private fun JSONObject.toItem() = MenuItem(
     getString("id"), getString("category"), getString("name"), optString("description"), optString("unit"),
-    getInt("price"), getBoolean("available"),
+    getInt("price"), getBoolean("available"), optString("photo"), optString("pack"),
+    optJSONArray("tags")?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList(),
 )
 
 private fun JSONObject.toMenu(): Menu {
@@ -209,9 +245,13 @@ private fun JSONObject.toMenu(): Menu {
             acceptingOrders = i.getBoolean("acceptingOrders"), mapUrl = i.optString("mapUrl"),
             lastOrder = i.optString("lastOrder").ifBlank { i.getString("close") },
             orderingOpen = i.optBoolean("orderingOpen", i.getBoolean("isOpen")),
+            transfer = i.optJSONObject("payment")?.optBoolean("transfer") ?: false,
+            payPhone = i.optJSONObject("payment")?.optString("phone").orEmpty(),
         ),
         categories = getJSONArray("categories").map { Category(it.getString("id"), it.getString("name")) },
         items = getJSONArray("items").map { it.toItem() },
+        tags = optJSONArray("tags")?.map { Tag(it.getString("id"), it.getString("name")) } ?: emptyList(),
+        tagline = optJSONObject("site")?.optString("tagline")?.ifBlank { null } ?: "24 лучшие пиццы в городе Канаш",
     )
 }
 
@@ -221,6 +261,10 @@ private fun JSONObject.toOrder() = Order(
     items = getJSONArray("items").map { OrderLine(it.getString("id"), it.getString("name"), it.optString("unit"), it.getInt("price"), it.getInt("qty")) },
     phone = optString("phone"), email = optString("email"), comment = optString("comment"), source = optString("source"),
     token = optString("token"), updatedAt = optLong("updatedAt", getLong("createdAt")),
+    payment = optString("payment").ifBlank { "cash" }, paymentStatus = optString("paymentStatus").ifBlank { "none" },
+    payPhone = optJSONObject("pay")?.optString("phone").orEmpty(),
+    payRecipient = optJSONObject("pay")?.optString("recipient").orEmpty(),
+    payBank = optJSONObject("pay")?.optString("bank").orEmpty(),
 )
 
 private fun JSONObject.toSettings() = Settings(getBoolean("acceptingOrders"), getInt("cooldownMinutes"))

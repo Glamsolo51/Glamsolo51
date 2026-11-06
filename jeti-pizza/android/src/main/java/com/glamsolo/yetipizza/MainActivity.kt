@@ -87,6 +87,9 @@ class MainActivity : ComponentActivity() {
                 onStaff = { screen = Screen.Staff },
                 onRetry = { address -> if (address != null) shop.setServer(address) else shop.loadMenu() },
                 server = if (BuildConfig.SERVER_EDITABLE) shop.server else null,
+                onTag = { tag -> shop.edit { it.copy(tag = tag) } },
+                onSort = { sort -> shop.edit { it.copy(sort = sort) } },
+                imageUrl = shop::imageUrl,
             )
             Screen.Cart -> CartScreen(
                 state = shopState,
@@ -104,6 +107,7 @@ class MainActivity : ComponentActivity() {
                     phone = shopState.menu?.info?.phone ?: "+7 927 667-21-21",
                     onBack = { screen = Screen.Menu },
                     onCall = { dial(shopState.menu?.info?.phone ?: "+79276672121") },
+                    onPaid = shop::claimPaid,
                 )
             }
             Screen.Staff ->
@@ -116,6 +120,7 @@ class MainActivity : ComponentActivity() {
         override fun login(login: String, password: String) = admin.login(login, password)
         override fun refreshOrders() { admin.refreshOrders() }
         override fun setStatus(order: Order, status: String) { admin.setStatus(order, status) }
+        override fun confirmPayment(order: Order) { admin.confirmPayment(order) }
         override fun loadHistory(date: LocalDate) { admin.loadHistory(date) }
         override fun closeHistory() = admin.closeHistory()
         override fun loadMenu() { admin.loadMenu() }

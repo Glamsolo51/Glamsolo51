@@ -8,8 +8,10 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -24,6 +26,7 @@ import com.glamsolo.yetipizza.ReportRow
 import com.glamsolo.yetipizza.Settings
 import com.glamsolo.yetipizza.ShopInfo
 import com.glamsolo.yetipizza.ShopState
+import com.glamsolo.yetipizza.Tag
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -36,17 +39,22 @@ import java.time.LocalDate
 private val info = ShopInfo(
     "Канаш, проспект Ленина, 22", "+7 927 667-21-21", "10:00", "22:00", 20,
     listOf("14:15", "14:30", "14:45", "15:00"), asapAllowed = true, isOpen = true, acceptingOrders = true, mapUrl = "",
+    transfer = true, payPhone = "+79279960111",
 )
 private val menu = Menu(
     info,
-    listOf(Category("pizza", "Пицца"), Category("snacks", "Фри и соусы"), Category("hot", "Горячие напитки")),
+    listOf(Category("pizza", "Пицца"), Category("snacks", "Фри и соусы"), Category("hot", "Горячие напитки"), Category("other", "Разное")),
     listOf(
-        MenuItem("1", "pizza", "Пепперони", "колбаски пепперони, майонезно-томатный соус, лук, сыр, зелень", "330 г", 340, true),
-        MenuItem("2", "pizza", "Мясной пир", "куриное филе, колбаса, томаты, сыр, зелень", "355 г", 345, true),
-        MenuItem("3", "pizza", "Брокколи", "курица, брокколи, куриный рулет, сыр", "350 г", 315, false),
-        MenuItem("4", "snacks", "Картошка фри", "", "150 г", 165, true),
-        MenuItem("5", "hot", "Капучино", "Большой", "", 135, true),
+        MenuItem("1", "pizza", "Пепперони", "колбаски пепперони, майонезно-томатный соус, лук, сыр, зелень", "330 г", 340, true, pack = "9", tags = listOf("spicy", "meat")),
+        MenuItem("2", "pizza", "Мясной пир", "куриное филе, колбаса, томаты, сыр, зелень", "355 г", 345, true, pack = "9", tags = listOf("chicken", "meat")),
+        MenuItem("3", "pizza", "Брокколи", "курица, брокколи, куриный рулет, сыр", "350 г", 315, false, pack = "9", tags = listOf("chicken")),
+        MenuItem("6", "pizza", "Маргарита", "томаты, сыр, зелень", "320 г", 240, true, pack = "9", tags = listOf("veggie")),
+        MenuItem("4", "snacks", "Картошка фри", "", "150 г", 165, true, pack = "9"),
+        MenuItem("5", "hot", "Капучино", "Большой", "", 135, true, pack = "10"),
+        MenuItem("9", "other", "Коробка", "", "1 шт.", 15, true),
+        MenuItem("10", "other", "Стакан бумажный", "", "400 мл", 13, true),
     ),
+    listOf(Tag("chicken", "Курица"), Tag("mushrooms", "Грибы"), Tag("spicy", "Острое"), Tag("meat", "Мясное"), Tag("veggie", "Без мяса")),
 )
 private val now = System.currentTimeMillis()
 private fun order(id: Long, status: String, comment: String = "") = Order(
@@ -59,6 +67,7 @@ private object NoActions : AdminActions {
     override fun login(login: String, password: String) {}
     override fun refreshOrders() {}
     override fun setStatus(order: Order, status: String) { lastStatus = status }
+    override fun confirmPayment(order: Order) {}
     override fun loadHistory(date: LocalDate) {}
     override fun closeHistory() {}
     override fun loadMenu() {}
@@ -93,7 +102,7 @@ class ScreensTest {
             MenuScreen(ShopState(menu = menu, cart = mapOf("2" to 1), hasActiveOrder = true), { id, q -> added = id to q }, {}, {}, {}, {})
         }
         compose.onNodeWithTag("cart-fab").assertExists() // a round cart button, no bar along the bottom
-        compose.onNodeWithContentDescription("Корзина: 1 шт. на 345 ₽").assertExists()
+        compose.onNodeWithContentDescription("Корзина: 1 шт. на 360 ₽").assertExists() // 345 ₽ pizza + 15 ₽ box added automatically
         compose.onNodeWithContentDescription("Вход для персонала").assertDoesNotExist()
         compose.onNodeWithText("Закончилось").assertDoesNotExist() // items are inside the sections
 
@@ -101,8 +110,9 @@ class ScreensTest {
         compose.onRoot().captureRoboImage("build/screenshots/menu-pizza.png")
         compose.onNodeWithContentDescription("В корзину: Пепперони").performClick()
         assertEquals("1" to 1, added)
-        compose.onNodeWithText("Закончилось").assertExists()
+        compose.onNodeWithTag("menu-list").performScrollToNode(hasText("Закончилось"))
         compose.onNodeWithText("Картошка фри").assertDoesNotExist()
+        compose.onNodeWithTag("menu-list").performScrollToNode(hasText("Дальше: Фри и соусы"))
         compose.onNodeWithText("Дальше: Фри и соусы").performClick()
         compose.onNodeWithText("Картошка фри").assertExists()
         compose.onNodeWithContentDescription("Все разделы").performClick()
@@ -130,6 +140,38 @@ class ScreensTest {
         assertEquals("http://10.0.2.2:8080", typed)
     }
 
+    @Test fun filterAndSortHidePackagingAndKeepCategories() {
+        show("menu-filter") {
+            MenuScreen(ShopState(menu = menu, tag = "chicken", sort = "asc"), { _, _ -> }, {}, {}, {}, {})
+        }
+        compose.onNodeWithTag("category-other").assertDoesNotExist() // only boxes and cups there: added by the cart
+        compose.onNodeWithTag("category-hot").assertDoesNotExist() // nothing with chicken
+        compose.onNodeWithTag("category-pizza").performClick()
+        compose.onRoot().captureRoboImage("build/screenshots/menu-filter-pizza.png")
+        compose.onNodeWithText("Мясной пир").assertExists()
+        compose.onNodeWithText("Маргарита").assertDoesNotExist()
+        compose.onNodeWithText("Коробка").assertDoesNotExist()
+        compose.onNodeWithText("Цена: сначала дешевле").assertExists()
+    }
+
+    @Test fun cartAddsBoxesAndCupsAndOffersTransfer() {
+        val state = ShopState(menu = menu, cart = mapOf("1" to 2, "5" to 1), name = "Анна", phone = "+7 927 111-22-33", email = "anna@mail.ru", payment = "transfer")
+        assertEquals(340 * 2 + 135 + 15 * 2 + 13, state.cartTotal)
+        show("cart-transfer") { CartScreen(state, {}, { _, _ -> }, {}, {}) }
+        compose.onNodeWithText("Коробка 1 шт. × 2").assertExists()
+        compose.onNodeWithText("Оформить и перейти к оплате").assertExists()
+    }
+
+    @Test fun statusShowsTransferInstructions() {
+        var claimed = false
+        show("status-transfer") {
+            StatusScreen(order(12, "new").copy(payment = "transfer", paymentStatus = "awaiting", payPhone = "+79279960111", payRecipient = "Иван И.", payBank = "Сбербанк"), null, info.address, info.phone, {}, {}) { claimed = true }
+        }
+        compose.onNodeWithText("+7 927 996-01-11").assertExists()
+        compose.onNodeWithText("Я оплатил").performClick()
+        assertEquals(true, claimed)
+    }
+
     @Test fun cartShowsCooldown() {
         show("cart-cooldown") {
             CartScreen(
@@ -147,9 +189,10 @@ class ScreensTest {
 
     @Test fun staffOrdersOnPhone() {
         show("staff-orders") {
-            AdminScreen(AdminState(loggedIn = true, active = listOf(order(14, "new", "Без лука, пожалуйста"), order(15, "new"), order(13, "cooking")), fresh = setOf(15)), NoActions, AdminTab.Orders) {}
+            AdminScreen(AdminState(loggedIn = true, active = listOf(order(14, "new", "Без лука, пожалуйста").copy(payment = "transfer", paymentStatus = "claimed"), order(15, "new"), order(13, "cooking")), fresh = setOf(15)), NoActions, AdminTab.Orders) {}
         }
         compose.onNodeWithTag("order-14").assertExists()
+        compose.onNodeWithText("Оплата пришла").assertExists()
         compose.onAllNodesWithText("В работу").assertCountEquals(2) // two new orders on the "Новые" filter
     }
 

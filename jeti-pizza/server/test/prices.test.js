@@ -1,14 +1,16 @@
-// Price list import and export of the cabinet (public/admin/xlsx.js and prices.js run in the browser).
+// Menu import from Excel and CSV: public/admin/xlsx.js reads the file in the browser, store.importMenu applies it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { deflateRawSync, crc32 } from 'node:zlib';
 import { readTable, writeXlsx } from '../public/admin/xlsx.js';
-import { priceListRows, matchPrices, parsePrice, WIDTHS } from '../public/admin/prices.js';
+import { openStore } from '../store.js';
 
 const menu = JSON.parse(readFileSync(new URL('../menu.json', import.meta.url), 'utf8'));
 const pizza = menu.items.find((i) => i.name === 'Пепперони');
 const syrups = menu.items.filter((i) => i.name === 'Сироп');
+const fresh = () => openStore(':memory:', menu);
+const preview = (rows) => fresh().importMenu(rows, { dryRun: true });
 
 // A book the way Excel writes it: shared strings, deflate, an "x:" prefix, cells without r="".
 function excelLikeBook(rows) {
@@ -47,24 +49,25 @@ function excelLikeBook(rows) {
   return Buffer.concat([...parts, cd, end]);
 }
 
-test('the downloaded price list reads back exactly', async () => {
-  const rows = priceListRows(menu);
-  const back = await readTable(writeXlsx(rows, { sheet: 'Прайс', widths: WIDTHS }));
+test('the downloaded template reads back exactly and changes nothing', async () => {
+  const store = fresh();
+  const { rows } = store.exportMenu();
+  const back = await readTable(writeXlsx(rows, { sheet: 'Меню', widths: [14, 18, 26, 50, 12, 10, 11, 24] }));
   assert.deepEqual(back, rows.map((r) => r.map((v) => v ?? '')));
-  assert.equal(matchPrices(back, menu.items).changes.length, 0);
+  assert.deepEqual(store.importMenu(back, { dryRun: true }), { created: 0, updated: 0, changes: [] });
 });
 
-test('a book saved by Excel: shared strings, compression, rich text', async () => {
+test('a book saved by Excel: shared strings, compression, rich text; rows found by name', async () => {
   const rows = await readTable(excelLikeBook([
     ['Прайс «Йети Пицца» & кофе'],
     ['Позиция', 'Цена, ₽'],
     ['Пепперони', 390],
-    ['Несуществующая', 100],
   ]));
-  assert.deepEqual(rows.slice(2), [['Прайс «Йети Пицца» & кофе'], ['Позиция', 'Цена, ₽'], ['Пепперони', 390], ['Несуществующая', 100]]);
-  const m = matchPrices(rows, menu.items);
-  assert.deepEqual(m.changes.map((c) => [c.item.id, c.price]), [[pizza.id, 390]]);
-  assert.deepEqual(m.notFound.map((x) => x.name), ['Несуществующая']);
+  assert.deepEqual(rows.slice(2), [['Прайс «Йети Пицца» & кофе'], ['Позиция', 'Цена, ₽'], ['Пепперони', 390]]);
+  const p = preview(rows);
+  assert.deepEqual(p.changes.map((c) => [c.name, c.oldPrice, c.price, c.fields]), [['Пепперони', pizza.price, 390, ['price']]]);
+  // A name that is not in the menu, without a section: refused, so a typo never becomes a new position.
+  assert.throws(() => preview([...rows, ['Несуществующая', 100]]), (e) => e.status === 400 && /Несуществующая/.test(e.extra.errors[0].message));
 });
 
 test('CSV from Excel in Russian (Windows-1251, semicolons) and in UTF-8', async () => {
@@ -73,26 +76,23 @@ test('CSV from Excel in Russian (Windows-1251, semicolons) and in UTF-8', async 
     const code = ch.charCodeAt(0);
     return code >= 0x410 && code <= 0x44f ? code - 0x350 : code === 0x451 ? 0xb8 : code;
   }));
-  for (const bytes of [cp1251, Buffer.from('﻿' + text)]) {
-    const m = matchPrices(await readTable(bytes), menu.items);
-    assert.deepEqual(m.changes.map((c) => [c.item.name, c.price]), [['Пепперони', 395]]);
-    assert.equal(m.ambiguous.length, syrups.length > 1 ? 1 : 0); // three syrups of one name: only a code tells them apart
+  for (const bytes of [cp1251, Buffer.from('\ufeff' + text)]) {
+    const rows = await readTable(bytes);
+    assert.deepEqual(rows[1], ['Пепперони', '330 г', '395,00']);
+    // Three syrups of one name and no volume: only an ID tells them apart, so the file is refused as a whole.
+    assert.throws(() => preview(rows), (e) => e.status === 400 && /несколько раз/.test(e.extra.errors[0].message));
+    assert.deepEqual(preview(rows.slice(0, 2)).changes.map((c) => [c.name, c.price]), [['Пепперони', 395]]);
   }
 });
 
-test('prices are matched by code first and checked', () => {
+test('rows are matched by ID first, prices and sections are checked', () => {
   const rows = [
-    ['Код', 'Позиция', 'Цена'],
+    ['ID', 'Позиция', 'Цена'],
     [syrups[1].id, 'Сироп', 30],
-    [pizza.id, 'Пепперони', '340,5'],
-    ['', 'пепперони ', ''],
-    ['', '', ''],
-    [menu.items[0].id, 'другое название', '1 200 ₽'],
+    [menu.items[0].id, menu.items[0].name, '1 200 ₽'],
   ];
-  const m = matchPrices(rows, menu.items);
-  assert.deepEqual(m.changes.map((c) => [c.item.id, c.price]), [[syrups[1].id, 30], [menu.items[0].id, 1200]]);
-  assert.deepEqual(m.invalid.map((x) => x.value), ['340,5']);
-  assert.throws(() => matchPrices([['Позиция', 'Количество']], menu.items), /Цена/);
-  assert.equal(parsePrice('1 200 руб.'), 1200);
-  assert.ok(Number.isNaN(parsePrice('дорого')));
+  assert.deepEqual(preview(rows).changes.map((c) => [c.name, c.price]), [['Сироп', 30], [menu.items[0].name, 1200]]);
+  assert.throws(() => preview([...rows, [pizza.id, 'Пепперони', '340,5']]), (e) => /340,5/.test(e.extra.errors[0].message));
+  assert.throws(() => preview([['Позиция', 'Количество']]), /Цена/);
+  assert.throws(() => preview([['Раздел', 'Название', 'Цена'], ['Нет такого', 'Новая', 100]]), (e) => /раздела/.test(e.extra.errors[0].message));
 });

@@ -1,6 +1,6 @@
 FROM node:22-alpine
 WORKDIR /app
-COPY package.json menu.json server.js store.js ./
+COPY package.json menu.json server.js store.js qr.js ./
 COPY public ./public
 RUN mkdir /data && chown node:node /data
 ENV PORT=8080 DB_PATH=/data/pizza.db

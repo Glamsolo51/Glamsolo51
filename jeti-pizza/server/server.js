@@ -1,7 +1,8 @@
 // HTTP layer: the website, the staff cabinet and the JSON API used by both and by the Android app.
 import { createServer } from 'node:http';
 import { networkInterfaces } from 'node:os';
-import { readFileSync, mkdirSync, createReadStream, statSync } from 'node:fs';
+import { readFileSync, mkdirSync, createReadStream, statSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { dirname, extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,10 +12,14 @@ const menu = JSON.parse(readFileSync(process.env.MENU_PATH ?? join(here, 'menu.j
 process.env.TZ = menu.info.timezone; // opening hours and reports use the pizzeria's local time
 
 const { openStore, OrderError } = await import('./store.js');
+const { qrSvg } = await import('./qr.js');
 
 const PORT = Number(process.env.PORT ?? 8080);
 const DB_PATH = process.env.DB_PATH ?? join(here, 'data', 'pizza.db');
 const PUBLIC = join(here, 'public');
+// Photos uploaded in the cabinet live next to the database, so backups and Docker volumes keep them.
+const UPLOADS = process.env.UPLOAD_DIR ?? join(dirname(DB_PATH), 'uploads');
+const IMAGE_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 const TYPES = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg',
@@ -31,6 +36,7 @@ const SECURITY_HEADERS = {
 const FINAL = ['done', 'cancelled'];
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
+mkdirSync(UPLOADS, { recursive: true });
 const store = openStore(DB_PATH, menu);
 const generated = store.ensureAdmin(process.env.ADMIN_LOGIN ?? 'admin', process.env.ADMIN_PASSWORD);
 if (generated) console.log(`Staff cabinet: login "${process.env.ADMIN_LOGIN ?? 'admin'}", password "${generated}". Change it in Settings.`);
@@ -99,24 +105,45 @@ function send(res, status, body, headers = {}) {
   res.end(JSON.stringify(body));
 }
 
-async function readJson(req, limit = 32_768) {
-  // A cross-site form can post text/plain without asking the browser first; JSON needs CORS, which we never allow.
-  if (!/^application\/json\b/i.test(req.headers['content-type'] ?? '')) throw new OrderError(415, 'Запрос должен быть в формате JSON.');
+async function readBody(req, limit) {
   let size = 0;
   const chunks = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > limit) throw new OrderError(413, 'Слишком большой запрос.');
+    if (size > limit) throw new OrderError(413, `Слишком большой файл или запрос (до ${Math.round(limit / 1048576) || 1} МБ).`);
     chunks.push(chunk);
   }
+  return Buffer.concat(chunks);
+}
+
+async function readJson(req, limit = 32_768) {
+  // A cross-site form can post text/plain without asking the browser first; JSON needs CORS, which we never allow.
+  if (!/^application\/json\b/i.test(req.headers['content-type'] ?? '')) throw new OrderError(415, 'Запрос должен быть в формате JSON.');
+  const body = await readBody(req, limit);
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+    return JSON.parse(body.toString('utf8') || '{}');
   } catch {
     throw new OrderError(400, 'Неверный JSON.');
   }
 }
 
+// Saves an uploaded photo after checking its first bytes, not just the type the browser claims.
+async function saveUpload(req) {
+  const ext = IMAGE_TYPES[req.headers['content-type']];
+  if (!ext) throw new OrderError(415, 'Загрузите фото в формате JPG, PNG или WebP.');
+  const data = await readBody(req, 5 * 1048576);
+  const magic = { jpg: [0xff, 0xd8, 0xff], png: [0x89, 0x50, 0x4e, 0x47], webp: [0x52, 0x49, 0x46, 0x46] }[ext];
+  if (!magic.every((b, i) => data[i] === b) || (ext === 'webp' && data.toString('latin1', 8, 12) !== 'WEBP')) {
+    throw new OrderError(415, 'Файл не похож на фото.');
+  }
+  const name = `${randomBytes(12).toString('hex')}.${ext}`;
+  writeFileSync(join(UPLOADS, name), data);
+  return { url: `/uploads/${name}` };
+}
+
 function serveStatic(req, res, path) {
+  const upload = path.match(/^\/uploads\/([0-9a-f]{24}\.(?:jpg|png|webp))$/);
+  if (upload) return sendFile(req, res, join(UPLOADS, upload[1]));
   if (path === '/') path = '/index.html';
   if (path === '/admin' || path === '/admin/') path = '/admin/index.html';
   let file;
@@ -126,6 +153,10 @@ function serveStatic(req, res, path) {
     file = '';
   }
   if (!file.startsWith(PUBLIC + sep)) return send(res, 404, { error: 'Не найдено.' });
+  return sendFile(req, res, file);
+}
+
+function sendFile(req, res, file) {
   let stat;
   try {
     stat = statSync(file);
@@ -181,8 +212,22 @@ async function handleAdmin(req, res, path, url) {
       return send(res, 200, store.publicMenu());
     case 'PATCH /api/admin/items/:id':
       return send(res, 200, store.updateItem(id, await readJson(req)));
-    case 'POST /api/admin/prices':
-      return send(res, 200, store.setPrices((await readJson(req, 262_144)).prices));
+    case 'POST /api/admin/orders/:id/payment': {
+      const order = store.setPayment(id, (await readJson(req)).status);
+      wakeOrder(order.id);
+      return send(res, 200, order);
+    }
+    case 'GET /api/admin/menu-template':
+      return send(res, 200, store.exportMenu());
+    case 'POST /api/admin/menu-import': {
+      // Rows read from Excel or CSV in the browser (public/admin/xlsx.js); { dryRun: true } only previews.
+      const body = await readJson(req, 2 * 1048576);
+      return send(res, 200, store.importMenu(body.rows, { dryRun: !!body.dryRun }));
+    }
+    case 'POST /api/admin/uploads':
+      return send(res, 201, await saveUpload(req));
+    case 'PUT /api/admin/site':
+      return send(res, 200, store.updateSite(await readJson(req)));
     case 'GET /api/admin/report':
       return send(res, 200, store.report(url.searchParams.get('from'), url.searchParams.get('to')));
     case 'GET /api/admin/settings':
@@ -224,6 +269,19 @@ async function handle(req, res) {
       await waitForChange(order.id, res);
       order = store.publicOrder(m[1], token) ?? order;
     }
+    return send(res, 200, order);
+  }
+  const qr = path.match(/^\/api\/orders\/(\d+)\/qr\.svg$/);
+  if (qr && req.method === 'GET') {
+    const value = store.publicOrder(qr[1], url.searchParams.get('token'))?.pay?.qr;
+    if (!value) return send(res, 404, { error: 'QR для этого заказа нет.' });
+    res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'image/svg+xml', 'Cache-Control': 'no-store' });
+    return res.end(qrSvg(value));
+  }
+  const paid = path.match(/^\/api\/orders\/(\d+)\/paid$/);
+  if (paid && req.method === 'POST') {
+    const order = store.claimPaid(paid[1], url.searchParams.get('token'));
+    wakeOrder(order.id);
     return send(res, 200, order);
   }
   if (path.startsWith('/api/')) return send(res, 404, { error: 'Не найдено.' });

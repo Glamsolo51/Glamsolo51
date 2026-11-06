@@ -37,19 +37,21 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-/** Colours of the pizzeria: chalkboard walls, the red sign, wood panels and the green LED strip. */
+/** Colours of the menu screens in the hall: black boards, the orange of the logo bar and the fire glow. */
 object Yeti {
-    val Charcoal = Color(0xFF141212)
-    val Panel = Color(0xFF1D1A19)
-    val Panel2 = Color(0xFF272322)
-    val Cream = Color(0xFFF6EFE6)
-    val Muted = Color(0xFFB5AAA0)
-    val Sign = Color(0xFFD63C28)
-    val Wood = Color(0xFFD29C62)
+    val Charcoal = Color(0xFF0D0B0A)
+    val Panel = Color(0xFF1A1614)
+    val Panel2 = Color(0xFF26201C)
+    val Cream = Color(0xFFFFF8F0)
+    val Muted = Color(0xFFC4B6A8)
+    val Sign = Color(0xFFFF8A1F) // the brand orange; text on it is OnSign
+    val OnSign = Color(0xFF1A0C00)
+    val Flame = Color(0xFFE8501E)
+    val Wood = Color(0xFFFFB45A)
     val Led = Color(0xFF7AD36B)
-    val Warn = Color(0xFFF2B544)
-    val Line = Color(0x24F6EFE6)
-    val LineStrong = Color(0x47F6EFE6)
+    val Warn = Color(0xFFFFC857)
+    val Line = Color(0x1FFFF8F0)
+    val LineStrong = Color(0x42FFF8F0)
 }
 
 val Manrope = FontFamily(
@@ -58,13 +60,14 @@ val Manrope = FontFamily(
     Font(R.font.manrope_bold, FontWeight.Bold),
     Font(R.font.manrope_extrabold, FontWeight.ExtraBold),
 )
-val Unbounded = FontFamily(Font(R.font.unbounded_bold, FontWeight.Bold))
+/** Handwritten script, like the names on the menu screens. */
+val Caveat = FontFamily(Font(R.font.caveat_bold, FontWeight.Bold))
 
 private val colors = darkColorScheme(
     primary = Yeti.Sign,
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFF4A1A12),
-    onPrimaryContainer = Color(0xFFFFDAD3),
+    onPrimary = Yeti.OnSign,
+    primaryContainer = Color(0xFF4A2608),
+    onPrimaryContainer = Color(0xFFFFDCC0),
     secondary = Yeti.Wood,
     onSecondary = Yeti.Charcoal,
     // Segmented buttons, badges and selected chips: the panel tone, not Material's default violet.
@@ -87,19 +90,20 @@ private val colors = darkColorScheme(
     outlineVariant = Yeti.Line,
     error = Color(0xFFFF8A7A),
     onError = Color(0xFF410002),
-    errorContainer = Color(0xFF4A1A12),
-    onErrorContainer = Color(0xFFFFC2B8),
+    errorContainer = Color(0xFF4A1A0E),
+    onErrorContainer = Color(0xFFFFC9B8),
 )
 
 private val base = Typography()
 private fun TextStyle.body() = copy(fontFamily = Manrope)
 private val typography = Typography(
-    displayLarge = base.displayLarge.copy(fontFamily = Unbounded, fontWeight = FontWeight.Bold),
-    displayMedium = base.displayMedium.copy(fontFamily = Unbounded, fontWeight = FontWeight.Bold, fontSize = 40.sp, lineHeight = 44.sp),
-    headlineLarge = base.headlineLarge.copy(fontFamily = Unbounded, fontWeight = FontWeight.Bold),
-    headlineMedium = base.headlineMedium.copy(fontFamily = Unbounded, fontWeight = FontWeight.Bold, fontSize = 24.sp),
-    headlineSmall = base.headlineSmall.copy(fontFamily = Unbounded, fontWeight = FontWeight.Bold, fontSize = 20.sp),
-    titleLarge = base.titleLarge.copy(fontFamily = Unbounded, fontWeight = FontWeight.Bold, fontSize = 18.sp),
+    displayLarge = base.displayLarge.copy(fontFamily = Caveat, fontWeight = FontWeight.Bold),
+    displayMedium = base.displayMedium.copy(fontFamily = Caveat, fontWeight = FontWeight.Bold, fontSize = 64.sp, lineHeight = 58.sp),
+    headlineLarge = base.headlineLarge.copy(fontFamily = Caveat, fontWeight = FontWeight.Bold, fontSize = 44.sp),
+    headlineMedium = base.headlineMedium.copy(fontFamily = Caveat, fontWeight = FontWeight.Bold, fontSize = 40.sp),
+    headlineSmall = base.headlineSmall.copy(fontFamily = Caveat, fontWeight = FontWeight.Bold, fontSize = 34.sp),
+    // Prices and numbers stay in Manrope: the script is for names.
+    titleLarge = base.titleLarge.copy(fontFamily = Manrope, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp),
     titleMedium = base.titleMedium.copy(fontFamily = Manrope, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp),
     titleSmall = base.titleSmall.copy(fontFamily = Manrope, fontWeight = FontWeight.Bold),
     bodyLarge = base.bodyLarge.body(),

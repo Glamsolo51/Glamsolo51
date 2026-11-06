@@ -31,9 +31,23 @@ data class ShopState(
     val order: Order? = null,
     val orderError: String? = null,
     val hasActiveOrder: Boolean = false,
+    /** Menu filter by composition (a tag id) and price order: "", "asc" or "desc". */
+    val tag: String = "",
+    val sort: String = "",
+    val payment: String = "cash",
 ) {
     val cartCount get() = cart.values.sum()
-    val cartTotal get() = cart.entries.sumOf { (id, qty) -> (menu?.items?.find { it.id == id }?.price ?: 0) * qty }
+
+    /** One box or cup per item that needs it; the server counts the same way. */
+    val packLines: List<Pair<MenuItem, Int>> get() {
+        val items = menu?.items ?: return emptyList()
+        val need = linkedMapOf<String, Int>()
+        for ((id, qty) in cart) items.find { it.id == id }?.pack?.takeIf { it.isNotBlank() }?.let { need[it] = (need[it] ?: 0) + qty }
+        return need.mapNotNull { (id, qty) -> items.find { it.id == id && it.available }?.let { it to qty } }
+    }
+
+    val cartTotal get() = cart.entries.sumOf { (id, qty) -> (menu?.items?.find { it.id == id }?.price ?: 0) * qty } +
+        packLines.sumOf { (item, qty) -> item.price * qty }
 }
 
 class ShopViewModel(app: Application) : AndroidViewModel(app) {
@@ -57,10 +71,10 @@ class ShopViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { io { api.menu() } }
             .onSuccess { menu ->
                 _state.update { s ->
-                    val cart = s.cart.filterKeys { id -> menu.items.any { it.id == id } }
+                    val cart = s.cart.filterKeys { id -> id !in menu.packIds && menu.items.any { it.id == id } }
                     val pickup = s.pickupTime.takeIf { it == "asap" && menu.info.asapAllowed || it in menu.info.slots }
                         ?: if (menu.info.asapAllowed) "asap" else menu.info.slots.firstOrNull() ?: "asap"
-                    s.copy(menu = menu, menuError = null, cart = cart, pickupTime = pickup)
+                    s.copy(menu = menu, menuError = null, cart = cart, pickupTime = pickup, payment = if (menu.info.transfer) s.payment else "cash")
                 }
                 prefs.cart = _state.value.cart
             }
@@ -68,6 +82,7 @@ class ShopViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     val server get() = prefs.serverUrl
+    fun imageUrl(path: String) = api.url(path)
 
     /** Test builds only: points the whole app (shop and staff) at another server, e.g. a computer on the same Wi-Fi. */
     fun setServer(input: String) {
@@ -93,7 +108,7 @@ class ShopViewModel(app: Application) : AndroidViewModel(app) {
         if (missing != null) return _state.update { it.copy(errorField = missing.first, formError = missing.second) }
         _state.update { it.copy(submitting = true, formError = null) }
         viewModelScope.launch {
-            runCatching { io { api.createOrder(s.name.trim(), s.phone, s.email.trim(), s.pickupTime, s.comment.trim(), s.cart) } }
+            runCatching { io { api.createOrder(s.name.trim(), s.phone, s.email.trim(), s.pickupTime, s.comment.trim(), s.cart, s.payment) } }
                 .onSuccess { order ->
                     prefs.name = s.name.trim(); prefs.phone = s.phone; prefs.email = s.email.trim()
                     prefs.orders = listOf(SavedOrder(order.id, order.token)) + prefs.orders
@@ -111,8 +126,17 @@ class ShopViewModel(app: Application) : AndroidViewModel(app) {
                             cooldownUntil = if (api?.status == 429) System.currentTimeMillis() + api.retryAfterSeconds * 1000L else it.cooldownUntil,
                         )
                     }
-                    if (api?.status == 409 || api?.field == "pickupTime") loadMenu()
+                    if (api?.status == 409 || api?.field == "pickupTime" || api?.field == "payment") loadMenu()
                 }
+        }
+    }
+
+    fun claimPaid() {
+        val saved = prefs.orders.firstOrNull() ?: return
+        viewModelScope.launch {
+            runCatching { io { api.claimPaid(saved.id, saved.token) } }
+                .onSuccess { o -> _state.update { it.copy(order = o, orderError = null) } }
+                .onFailure { e -> _state.update { it.copy(orderError = e.message) } }
         }
     }
 
@@ -232,6 +256,12 @@ class AdminViewModel(private val app: Application) : AndroidViewModel(app) {
     fun setStatus(order: Order, status: String) = launch {
         io { api.setStatus(order.id, status) }
         _state.update { it.copy(fresh = it.fresh - order.id) }
+        refreshOrders()
+        _state.value.history?.let { loadHistory(_state.value.historyDate) }
+    }
+
+    fun confirmPayment(order: Order) = launch {
+        io { api.confirmPayment(order.id) }
         refreshOrders()
         _state.value.history?.let { loadHistory(_state.value.historyDate) }
     }

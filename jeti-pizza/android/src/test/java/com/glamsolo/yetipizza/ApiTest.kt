@@ -68,7 +68,8 @@ class ApiTest {
         val item = menu.items.first { it.available }
         val phone = "+7927" + (1_000_000..9_999_999).random()
         val order = shop.createOrder("Тест", phone, "$phone@test.ru", menu.info.slots.firstOrNull() ?: "asap", "из ApiTest", mapOf(item.id to 2))
-        assertEquals(item.price * 2, order.total)
+        val box = menu.items.find { it.id == item.pack && it.available }
+        assertEquals(item.price * 2 + (box?.price ?: 0) * 2, order.total) // the server adds a box or cup per item
         assertEquals("new", shop.order(order.id, order.token).status)
         assertEquals(429, assertFailsWith<ApiException> { shop.createOrder("Тест", phone, "x$phone@test.ru", "asap", "", mapOf(item.id to 1)) }.status)
 

@@ -65,12 +65,27 @@ test('the customer sees a status change at once, not on the next poll', async ()
   assert.equal((await fetch(`${base}/api/orders/${order.id}?token=wrong&since=0`)).status, 404);
 });
 
-test('price list import needs the staff session', async () => {
-  const body = { prices: [{ id: pizza.id, price: 777 }] };
-  assert.equal((await fetch(`${base}/api/admin/prices`, json(body))).status, 401);
-  const res = await fetch(`${base}/api/admin/prices`, json(body, await staffToken()));
-  assert.equal(res.status, 200);
-  assert.equal((await (await fetch(`${base}/api/menu`)).json()).items.find((i) => i.id === pizza.id).price, 777);
+test('menu import needs the staff session and previews before saving', async () => {
+  const body = { rows: [['ID', 'Цена, ₽'], [pizza.id, 777]], dryRun: true };
+  assert.equal((await fetch(`${base}/api/admin/menu-import`, json(body))).status, 401);
+  const token = await staffToken();
+  const preview = await (await fetch(`${base}/api/admin/menu-import`, json(body, token))).json();
+  assert.deepEqual(preview.changes.map((c) => c.price), [777]);
+  const price = async () => (await (await fetch(`${base}/api/menu`)).json()).items.find((i) => i.id === pizza.id).price;
+  assert.equal(await price(), pizza.price); // the preview saved nothing
+  assert.equal((await fetch(`${base}/api/admin/menu-import`, json({ ...body, dryRun: false }, token))).status, 200);
+  assert.equal(await price(), 777);
+});
+
+test('uploads take only real pictures', async () => {
+  const token = await staffToken();
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+  const up = (type, body, t = token) => fetch(`${base}/api/admin/uploads`, { method: 'POST', headers: { 'Content-Type': type, ...(t ? { Authorization: `Bearer ${t}` } : {}) }, body });
+  assert.equal((await up('image/png', png, null)).status, 401);
+  assert.equal((await up('image/png', Buffer.from('not a picture'))).status, 415);
+  const { url } = await (await up('image/png', png)).json();
+  assert.match(url, /^\/uploads\/[0-9a-f]{24}\.png$/);
+  assert.equal((await fetch(base + url)).headers.get('content-type'), 'image/png');
 });
 
 test('files outside public/ are never served', async () => {

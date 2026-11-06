@@ -100,6 +100,7 @@ interface AdminActions {
     fun login(login: String, password: String)
     fun refreshOrders()
     fun setStatus(order: Order, status: String)
+    fun confirmPayment(order: Order)
     fun loadHistory(date: LocalDate)
     fun closeHistory()
     fun loadMenu()
@@ -145,7 +146,7 @@ fun LoginScreen(state: AdminState, actions: AdminActions) {
             Modifier.padding(padding).imePadding().padding(24.dp).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("КАБИНЕТ\nПИЦЦЕРИИ", style = MaterialTheme.typography.headlineMedium)
+            Text("Кабинет\nпиццерии", style = MaterialTheme.typography.headlineLarge)
             Text("Для сотрудников «Йети Пиццы»: заказы, стоп-лист и отчёты.", color = Yeti.Muted)
             OutlinedTextField(login, { login = it }, label = { Text("Логин") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(
@@ -187,7 +188,7 @@ fun AdminScreen(state: AdminState, actions: AdminActions, tab: AdminTab, onTab: 
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
-                title = { Text(tab.title.uppercase(), style = MaterialTheme.typography.headlineSmall) },
+                title = { Text(tab.title, style = MaterialTheme.typography.headlineMedium) },
                 actions = {
                     IconButton(onClick = actions::exit) { Icon(Icons.Outlined.Storefront, "Открыть меню для покупателей") }
                 },
@@ -319,6 +320,7 @@ fun OrderCard(o: Order, fresh: Boolean, history: Boolean, actions: AdminActions)
     val late = o.status in setOf("new", "cooking") && o.pickupAt < now
     var confirmCancel by remember { mutableStateOf(false) }
     var statusMenu by remember { mutableStateOf(false) }
+    var confirmPay by remember { mutableStateOf(false) }
     Surface(
         color = Yeti.Panel2,
         shape = MaterialTheme.shapes.large,
@@ -358,6 +360,19 @@ fun OrderCard(o: Order, fresh: Boolean, history: Boolean, actions: AdminActions)
                 }
             }
             HorizontalDivider(color = Yeti.LineStrong)
+            if (o.payment == "transfer") {
+                val (label, color) = when (o.paymentStatus) {
+                    "paid" -> "Оплачено переводом ✓" to Yeti.Led
+                    "claimed" -> "Перевод: покупатель оплатил — проверьте банк" to Yeti.Warn
+                    else -> "Перевод: ещё не оплачен" to Yeti.Muted
+                }
+                Row(Modifier.fillMaxWidth().background(color.copy(alpha = .12f), MaterialTheme.shapes.medium).padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(label, color = color, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    if (o.paymentStatus != "paid") TextButton(onClick = { confirmPay = true }, colors = ButtonDefaults.textButtonColors(contentColor = Yeti.Cream)) { Text("Оплата пришла") }
+                }
+            } else {
+                Text("Оплата при получении", color = Yeti.Muted, style = MaterialTheme.typography.bodySmall)
+            }
             if (o.comment.isNotBlank()) {
                 Text("💬 ${o.comment}", color = Yeti.Warn, modifier = Modifier.fillMaxWidth().background(Yeti.Warn.copy(alpha = .12f), MaterialTheme.shapes.medium).padding(10.dp))
             }
@@ -383,6 +398,15 @@ fun OrderCard(o: Order, fresh: Boolean, history: Boolean, actions: AdminActions)
                 }
             }
         }
+    }
+    if (confirmPay) {
+        AlertDialog(
+            onDismissRequest = { confirmPay = false },
+            title = { Text("Перевод пришёл?") },
+            text = { Text("${rub(o.total)} по заказу № ${o.id} поступили на счёт?") },
+            confirmButton = { TextButton(onClick = { confirmPay = false; actions.confirmPayment(o) }) { Text("Да, оплачено") } },
+            dismissButton = { TextButton(onClick = { confirmPay = false }) { Text("Ещё нет") } },
+        )
     }
     if (confirmCancel) {
         AlertDialog(
@@ -580,7 +604,7 @@ private fun Long.toUtcDate(): LocalDate = Instant.ofEpochMilli(this).atZone(java
 private fun Tile(label: String, value: String, modifier: Modifier) {
     Column(modifier.background(Yeti.Panel, MaterialTheme.shapes.large).padding(14.dp)) {
         Text(label, color = Yeti.Muted, style = MaterialTheme.typography.labelMedium)
-        Text(value, style = MaterialTheme.typography.headlineSmall, maxLines = 1)
+        Text(value, style = MaterialTheme.typography.titleLarge, maxLines = 1)
     }
 }
 

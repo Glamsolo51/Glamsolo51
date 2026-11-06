@@ -1,7 +1,9 @@
 package com.glamsolo.yetipizza.ui
 
+import android.content.ClipData
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -25,17 +27,23 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
+import androidx.compose.material.icons.automirrored.outlined.Sort
+import androidx.compose.material.icons.outlined.Badge
 import androidx.compose.material.icons.outlined.Call
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.ShoppingCart
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -51,6 +59,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -59,21 +68,31 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -91,7 +110,7 @@ import com.glamsolo.yetipizza.MenuItem
 import com.glamsolo.yetipizza.Order
 import com.glamsolo.yetipizza.ShopState
 import kotlinx.coroutines.delay
-import androidx.compose.foundation.lazy.grid.items as gridItems
+import kotlinx.coroutines.launch
 
 @Composable
 fun Stepper(qty: Int, label: String, onQty: (Int) -> Unit) {
@@ -108,9 +127,56 @@ fun Stepper(qty: Int, label: String, onQty: (Int) -> Unit) {
 
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier) =
-    Text(text.uppercase(), style = MaterialTheme.typography.titleLarge, modifier = modifier)
+    Text(text, style = MaterialTheme.typography.headlineMedium, modifier = modifier)
 
-private fun shownCategories(menu: Menu) = menu.categories.filter { c -> menu.items.any { it.category == c.id } }
+/** The yeti's footprints from the bottom of the menu screens. */
+@Composable
+fun Footprints(modifier: Modifier = Modifier, count: Int = 5) {
+    Canvas(modifier.size(width = (count * 26).dp, height = 34.dp)) {
+        val step = size.width / count
+        repeat(count) { i ->
+            val x = step * i + step / 2
+            val y = if (i % 2 == 0) size.height * .38f else size.height * .62f
+            val c = Yeti.Cream.copy(alpha = .45f)
+            drawOval(c, topLeft = Offset(x - 6.dp.toPx(), y - 4.dp.toPx()), size = Size(12.dp.toPx(), 16.dp.toPx()))
+            listOf(-6f to -9f, -2.5f to -12f, 2.5f to -12f, 6f to -9f).forEach { (dx, dy) ->
+                drawCircle(c, radius = 2.dp.toPx(), center = Offset(x + dx.dp.toPx(), y + dy.dp.toPx()))
+            }
+        }
+    }
+}
+
+private val SORTS = listOf("" to "как в меню", "asc" to "сначала дешевле", "desc" to "сначала дороже")
+
+/** What the menu shows: no boxes or cups (the cart adds them), and only items with the chosen composition. */
+private fun visibleItems(menu: Menu, tag: String) = menu.items.filter { it.id !in menu.packIds && (tag.isEmpty() || tag in it.tags) }
+private fun shownCategories(menu: Menu, tag: String = "") = visibleItems(menu, tag).map { it.category }.toSet().let { used -> menu.categories.filter { it.id in used } }
+
+@Composable
+private fun TagChip(label: String, selected: Boolean, onClick: () -> Unit) = FilterChip(
+    selected = selected, onClick = onClick, label = { Text(label) }, shape = RoundedCornerShape(50),
+    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Yeti.Sign, selectedLabelColor = Yeti.OnSign),
+)
+
+/** Composition filters, and (in a section) the price order. */
+@Composable
+private fun FilterRow(menu: Menu, state: ShopState, onTag: (String) -> Unit, onSort: ((String) -> Unit)?, edge: Dp = 16.dp) {
+    val shownTags = menu.tags.filter { t -> menu.items.any { it.id !in menu.packIds && t.id in it.tags } }
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(horizontal = edge)) {
+        if (onSort != null) item {
+            val next = SORTS[(SORTS.indexOfFirst { it.first == state.sort } + 1) % SORTS.size].first
+            AssistChip(
+                onClick = { onSort(next) },
+                label = { Text("Цена: ${SORTS.first { it.first == state.sort }.second}") },
+                leadingIcon = { Icon(Icons.AutoMirrored.Outlined.Sort, null, Modifier.size(18.dp)) },
+                shape = RoundedCornerShape(50),
+                modifier = Modifier.testTag("sort"),
+            )
+        }
+        item { TagChip("Всё меню", state.tag.isEmpty()) { onTag("") } }
+        items(shownTags, key = { it.id }) { t -> TagChip(t.name, state.tag == t.id) { onTag(t.id) } }
+    }
+}
 
 /** 1 позиция, 2 позиции, 5 позиций */
 fun plural(n: Int, one: String, few: String, many: String): String {
@@ -132,6 +198,9 @@ fun MenuScreen(
     onStaff: () -> Unit,
     onRetry: (server: String?) -> Unit,
     server: String? = null,
+    onTag: (String) -> Unit = {},
+    onSort: (String) -> Unit = {},
+    imageUrl: (String) -> String? = { null },
 ) {
     val menu = state.menu
     var openCategory by rememberSaveable { mutableStateOf<String?>(null) }
@@ -165,11 +234,11 @@ fun MenuScreen(
         }
         // Room under the last row for the round cart button.
         val bottom = padding.calculateBottomPadding() + 88.dp
-        val category = shownCategories(menu).find { it.id == openCategory }
+        val category = shownCategories(menu, state.tag).find { it.id == openCategory }
         if (category == null) {
-            SectionCards(menu, state, grid, bottom, onOpenOrder, onStaff) { openCategory = it }
+            SectionCards(menu, state, grid, bottom, onOpenOrder, onStaff, onTag) { openCategory = it }
         } else {
-            SectionItems(menu, category, state.cart, bottom, onQty, onBack = { openCategory = null }) { openCategory = it }
+            SectionItems(menu, state, category, bottom, onQty, onTag, onSort, imageUrl, onBack = { openCategory = null }) { openCategory = it }
         }
     }
 }
@@ -180,7 +249,7 @@ private fun CartButton(count: Int, total: Int, onClick: () -> Unit) {
         onClick = onClick,
         shape = CircleShape,
         containerColor = Yeti.Sign,
-        contentColor = Color.White,
+        contentColor = Yeti.OnSign,
         modifier = Modifier.testTag("cart-fab").semantics { contentDescription = "Корзина: $count шт. на ${rub(total)}" },
     ) {
         BadgedBox(badge = { Badge(containerColor = Color.White, contentColor = Yeti.Charcoal) { Text("$count", fontWeight = FontWeight.ExtraBold) } }) {
@@ -197,9 +266,14 @@ private fun SectionCards(
     bottom: Dp,
     onOpenOrder: () -> Unit,
     onStaff: () -> Unit,
+    onTag: (String) -> Unit,
     onOpen: (String) -> Unit,
 ) {
     val staff by rememberUpdatedState(onStaff)
+    // The fire glow from the bottom of the menu screens.
+    val glow = Modifier.drawBehind {
+        drawRect(Brush.radialGradient(listOf(Yeti.Sign.copy(alpha = .5f), Yeti.Flame.copy(alpha = .22f), Color.Transparent), center = Offset(size.width / 2, size.height * 1.1f), radius = size.width * .85f))
+    }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 150.dp),
         state = grid,
@@ -209,7 +283,7 @@ private fun SectionCards(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
-            Column(Modifier.padding(horizontal = 4.dp)) {
+            Column(glow.padding(horizontal = 4.dp)) {
                 if (state.hasActiveOrder) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         OutlinedButton(onClick = onOpenOrder) { Text("Мой заказ") }
@@ -217,26 +291,35 @@ private fun SectionCards(
                 } else {
                     Spacer(Modifier.height(12.dp))
                 }
-                Text(
-                    "ЙЕТИ\nПИЦЦА",
-                    style = MaterialTheme.typography.displayMedium.copy(
-                        fontSize = 44.sp, lineHeight = 48.sp,
-                        shadow = Shadow(Yeti.Sign, Offset(0f, 8f), 0f),
-                    ),
-                    modifier = Modifier.testTag("brand").pointerInput(Unit) { detectTapGestures(onLongPress = { staff() }) },
-                )
-                Spacer(Modifier.height(10.dp))
+                // The logo: two words, an orange bar behind the second. A long press opens the staff cabinet.
+                Column(Modifier.testTag("brand").pointerInput(Unit) { detectTapGestures(onLongPress = { staff() }) }) {
+                    Text("Йети", style = MaterialTheme.typography.displayMedium.copy(fontSize = 70.sp, lineHeight = 64.sp))
+                    Text(
+                        "Пицца",
+                        style = MaterialTheme.typography.displayMedium.copy(fontSize = 70.sp, lineHeight = 64.sp),
+                        modifier = Modifier.drawBehind {
+                            rotate(-2f) { drawRoundRect(Yeti.Sign, topLeft = Offset(-12f, size.height * .46f), size = Size(size.width + 24f, size.height * .3f), cornerRadius = CornerRadius(6f)) }
+                        }.padding(horizontal = 6.dp),
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(menu.tagline, style = MaterialTheme.typography.headlineSmall.copy(fontSize = 26.sp), color = Yeti.Wood)
                 Text("Самовывоз · ${menu.info.address}", style = MaterialTheme.typography.titleMedium)
-                Text("Готовим ~${menu.info.prepMinutes} минут, оплата при получении", color = Yeti.Muted)
+                Text(
+                    "Готовим ~${menu.info.prepMinutes} минут · оплата ${if (menu.info.transfer) "по СБП или при получении" else "при получении"}",
+                    color = Yeti.Muted,
+                )
+                Footprints(Modifier.align(Alignment.End).padding(top = 4.dp))
                 notice(state)?.let {
                     Spacer(Modifier.height(12.dp))
                     Text(it, color = Yeti.Warn, modifier = Modifier.fillMaxWidth().background(Yeti.Warn.copy(alpha = .12f), MaterialTheme.shapes.medium).padding(12.dp))
                 }
-                SectionTitle("Меню", Modifier.padding(top = 20.dp, bottom = 2.dp))
+                SectionTitle("Меню", Modifier.padding(top = 16.dp, bottom = 6.dp))
             }
         }
-        gridItems(shownCategories(menu), key = { it.id }) { c ->
-            val items = menu.items.filter { it.category == c.id }
+        item(span = { GridItemSpan(maxLineSpan) }) { FilterRow(menu, state, onTag, null, edge = 0.dp) }
+        gridItems(shownCategories(menu, state.tag), key = { it.id }) { c ->
+            val items = visibleItems(menu, state.tag).filter { it.category == c.id }
             SectionCard(c, items.size, items.sumOf { state.cart[it.id] ?: 0 }) { onOpen(c.id) }
         }
     }
@@ -253,12 +336,12 @@ private fun SectionCard(c: Category, count: Int, inCart: Int, onClick: () -> Uni
     ) {
         Box {
             Column(Modifier.padding(14.dp)) {
-                Icon(categoryIcon(c.id), null, tint = Yeti.Wood, modifier = Modifier.size(34.dp))
-                Spacer(Modifier.height(10.dp))
+                Icon(categoryIcon(c.id), null, tint = Yeti.Sign, modifier = Modifier.size(34.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
-                    c.name.uppercase(),
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontSize = 13.sp, lineHeight = 16.sp, hyphens = Hyphens.Auto, lineBreak = LineBreak.Paragraph,
+                    c.name,
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontSize = 26.sp, lineHeight = 26.sp, hyphens = Hyphens.Auto, lineBreak = LineBreak.Paragraph,
                     ),
                     minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 )
@@ -266,7 +349,7 @@ private fun SectionCard(c: Category, count: Int, inCart: Int, onClick: () -> Uni
                 Text("$count ${plural(count, "позиция", "позиции", "позиций")}", color = Yeti.Muted, style = MaterialTheme.typography.bodySmall)
             }
             if (inCart > 0) {
-                Badge(Modifier.align(Alignment.TopEnd).padding(10.dp), containerColor = Yeti.Sign, contentColor = Color.White) {
+                Badge(Modifier.align(Alignment.TopEnd).padding(10.dp), containerColor = Yeti.Sign, contentColor = Yeti.OnSign) {
                     Text("$inCart", fontWeight = FontWeight.ExtraBold)
                 }
             }
@@ -277,26 +360,34 @@ private fun SectionCard(c: Category, count: Int, inCart: Int, onClick: () -> Uni
 @Composable
 private fun SectionItems(
     menu: Menu,
+    state: ShopState,
     category: Category,
-    cart: Map<String, Int>,
     bottom: Dp,
     onQty: (String, Int) -> Unit,
+    onTag: (String) -> Unit,
+    onSort: (String) -> Unit,
+    imageUrl: (String) -> String?,
     onBack: () -> Unit,
     onOpen: (String) -> Unit,
 ) {
-    val sections = shownCategories(menu)
+    val cart = state.cart
+    val sections = shownCategories(menu, state.tag)
     val next = sections[(sections.indexOf(category) + 1) % sections.size]
     val list = key(category.id) { rememberLazyListState() } // each section starts at its top
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 16.dp, top = 4.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Все разделы") }
-            Icon(categoryIcon(category.id), null, tint = Yeti.Wood, modifier = Modifier.size(26.dp))
+            Icon(categoryIcon(category.id), null, tint = Yeti.Sign, modifier = Modifier.size(26.dp))
             Spacer(Modifier.width(10.dp))
             SectionTitle(category.name, Modifier.weight(1f))
         }
-        LazyColumn(state = list, contentPadding = PaddingValues(top = 4.dp, bottom = bottom)) {
-            items(menu.items.filter { it.category == category.id }, key = { it.id }) { item ->
-                ItemCard(item, cart[item.id] ?: 0) { onQty(item.id, it) }
+        FilterRow(menu, state, onTag, onSort)
+        val items = visibleItems(menu, state.tag).filter { it.category == category.id }.let { list ->
+            when (state.sort) { "asc" -> list.sortedBy { it.price }; "desc" -> list.sortedByDescending { it.price }; else -> list }
+        }
+        LazyColumn(state = list, contentPadding = PaddingValues(top = 8.dp, bottom = bottom), modifier = Modifier.testTag("menu-list")) {
+            items(items, key = { it.id }) { item ->
+                ItemCard(item, cart[item.id] ?: 0, menu.tags.filter { it.id in item.tags }.map { it.name }, item.photo.ifBlank { null }?.let(imageUrl)) { onQty(item.id, it) }
             }
             if (next != category) {
                 item(key = "next") {
@@ -321,31 +412,46 @@ private fun notice(state: ShopState): String? {
 }
 
 @Composable
-private fun ItemCard(item: MenuItem, qty: Int, onQty: (Int) -> Unit) {
+private fun ItemCard(item: MenuItem, qty: Int, labels: List<String>, photoUrl: String?, onQty: (Int) -> Unit) {
     Surface(
         color = Yeti.Panel,
         shape = MaterialTheme.shapes.large,
         border = BorderStroke(if (qty > 0) 2.dp else 1.dp, if (qty > 0) Yeti.Sign else Yeti.Line),
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
     ) {
-        Column(Modifier.padding(14.dp)) {
-            Text(item.name, style = MaterialTheme.typography.titleMedium, color = if (item.available) Yeti.Cream else Yeti.Muted)
-            if (item.description.isNotBlank()) {
-                Text(item.description, style = MaterialTheme.typography.bodySmall, color = Yeti.Muted, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        Column {
+            if (photoUrl != null) {
+                RemoteImage(
+                    photoUrl, item.name,
+                    Modifier.fillMaxWidth().height(190.dp).drawBehind {
+                        drawRect(Brush.radialGradient(listOf(Yeti.Sign.copy(alpha = .35f), Color.Transparent), center = Offset(size.width / 2, size.height * 1.1f), radius = size.width * .7f))
+                    }.padding(10.dp),
+                )
             }
-            Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(rub(item.price), style = MaterialTheme.typography.titleLarge.copy(fontSize = 17.sp))
-                if (item.unit.isNotBlank()) Text(" · ${item.unit}", color = Yeti.Muted, style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.weight(1f))
-                when {
-                    !item.available -> Text("Закончилось", color = Yeti.Muted, style = MaterialTheme.typography.labelLarge)
-                    qty > 0 -> Stepper(qty, item.name, onQty)
-                    else -> OutlinedButton(
-                        onClick = { onQty(1) },
-                        border = BorderStroke(1.dp, Yeti.Sign),
-                        modifier = Modifier.semantics { contentDescription = "В корзину: ${item.name}" },
-                    ) { Text("+ В корзину") }
+            Column(Modifier.padding(16.dp)) {
+                Text(item.name, style = MaterialTheme.typography.headlineSmall, color = if (item.available) Yeti.Cream else Yeti.Muted)
+                if (item.description.isNotBlank()) {
+                    Text(item.description, style = MaterialTheme.typography.bodySmall, color = Yeti.Muted, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                }
+                if (labels.isNotEmpty()) {
+                    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        labels.forEach { Text(it, style = MaterialTheme.typography.labelSmall, color = Yeti.Muted, modifier = Modifier.border(1.dp, Yeti.LineStrong, RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 2.dp)) }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(rub(item.price), style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp))
+                    if (item.unit.isNotBlank()) Text(" · ${item.unit}", color = Yeti.Muted, style = MaterialTheme.typography.bodySmall)
+                    Spacer(Modifier.weight(1f))
+                    when {
+                        !item.available -> Text("Закончилось", color = Yeti.Muted, style = MaterialTheme.typography.labelLarge)
+                        qty > 0 -> Stepper(qty, item.name, onQty)
+                        else -> OutlinedButton(
+                            onClick = { onQty(1) },
+                            border = BorderStroke(1.dp, Yeti.Sign),
+                            modifier = Modifier.semantics { contentDescription = "В корзину: ${item.name}" },
+                        ) { Text("+ В корзину", color = Yeti.Cream) }
+                    }
                 }
             }
         }
@@ -383,7 +489,7 @@ fun CartScreen(
         containerColor = Yeti.Charcoal,
         topBar = {
             TopAppBar(
-                title = { Text("ВАШ ЗАКАЗ", style = MaterialTheme.typography.headlineSmall) },
+                title = { Text("Ваш заказ", style = MaterialTheme.typography.headlineMedium) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Назад") } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Yeti.Charcoal),
             )
@@ -396,16 +502,16 @@ fun CartScreen(
                         Spacer(Modifier.height(10.dp))
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Итого, оплата при получении", color = Yeti.Muted, modifier = Modifier.weight(1f))
-                        Text(rub(state.cartTotal), style = MaterialTheme.typography.headlineSmall)
+                        Text(if (state.payment == "transfer") "Итого, переведёте после оформления" else "Итого, оплата при получении", color = Yeti.Muted, modifier = Modifier.weight(1f))
+                        Text(rub(state.cartTotal), style = MaterialTheme.typography.titleLarge.copy(fontSize = 24.sp))
                     }
                     Spacer(Modifier.height(10.dp))
                     Button(
                         onClick = onSubmit,
                         enabled = canOrder && cooldownLeft == 0L && !state.submitting && lines.all { it.first.available },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
-                        shape = MaterialTheme.shapes.large,
-                    ) { Text(if (state.submitting) "Отправляем…" else "Оформить самовывоз") }
+                        shape = RoundedCornerShape(50),
+                    ) { Text(if (state.submitting) "Отправляем…" else if (state.payment == "transfer") "Оформить и перейти к оплате" else "Оформить самовывоз") }
                 }
             }
         },
@@ -426,10 +532,20 @@ fun CartScreen(
                 }
                 HorizontalDivider(color = Yeti.Line)
             }
+            items(state.packLines, key = { "pack-" + it.first.id }) { (item, qty) ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${item.name}${if (item.unit.isNotBlank()) " ${item.unit}" else ""} × $qty", style = MaterialTheme.typography.titleSmall, color = Yeti.Muted)
+                        Text("для самовывоза, добавлено автоматически", color = Yeti.Muted, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(rub(item.price * qty), color = Yeti.Muted, fontWeight = FontWeight.ExtraBold)
+                }
+                HorizontalDivider(color = Yeti.Line)
+            }
             if (lines.isEmpty()) return@LazyColumn
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(top = 20.dp)) {
-                    Text("САМОВЫВОЗ · ${menu.info.address.uppercase()}", color = Yeti.Wood, style = MaterialTheme.typography.labelMedium)
+                    Text("Самовывоз · пр. Ленина, 22", color = Yeti.Sign, style = MaterialTheme.typography.headlineSmall)
                     Field("Имя", state.name, state.errorField == "name") { v -> onEdit { it.copy(name = v) } }
                     Field("Телефон", state.phone, state.errorField == "phone", KeyboardType.Phone, "+7 900 000-00-00") { v -> onEdit { it.copy(phone = v) } }
                     Field("Почта", state.email, state.errorField == "email", KeyboardType.Email, "you@mail.ru") { v -> onEdit { it.copy(email = v) } }
@@ -442,7 +558,8 @@ fun CartScreen(
                                 onClick = { onEdit { it.copy(pickupTime = o) } },
                                 label = { Text(if (o == "asap") "Как можно скорее" else "к $o") },
                                 leadingIcon = if (state.pickupTime == o) ({ Icon(Icons.Outlined.Check, null, Modifier.size(18.dp)) }) else null,
-                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Yeti.Sign, selectedLabelColor = Color.White, selectedLeadingIconColor = Color.White),
+                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Yeti.Sign, selectedLabelColor = Yeti.OnSign, selectedLeadingIconColor = Yeti.OnSign),
+                                shape = RoundedCornerShape(50),
                             )
                         }
                     }
@@ -451,8 +568,31 @@ fun CartScreen(
                         label = { Text("Комментарий") }, placeholder = { Text("Например: порезать на 8 кусочков") },
                         modifier = Modifier.fillMaxWidth(), minLines = 2,
                     )
+                    Text("Оплата", color = Yeti.Sign, style = MaterialTheme.typography.headlineSmall)
+                    PayOption("При получении", "наличными или картой в пиццерии", state.payment == "cash") { onEdit { it.copy(payment = "cash") } }
+                    if (menu.info.transfer) {
+                        PayOption("Переводом по СБП сейчас", "из приложения любого банка по номеру телефона", state.payment == "transfer") { onEdit { it.copy(payment = "transfer") } }
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PayOption(title: String, hint: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium)
+            .border(1.dp, if (selected) Yeti.Sign else Yeti.LineStrong, MaterialTheme.shapes.medium)
+            .background(if (selected) Yeti.Sign.copy(alpha = .14f) else Color.Transparent)
+            .selectable(selected, onClick = onClick, role = Role.RadioButton).padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected, onClick = null)
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(title, fontWeight = FontWeight.Bold)
+            Text(hint, color = Yeti.Muted, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -469,12 +609,12 @@ private fun Field(label: String, value: String, isError: Boolean, type: Keyboard
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StatusScreen(order: Order?, error: String?, address: String, phone: String, onBack: () -> Unit, onCall: () -> Unit) {
+fun StatusScreen(order: Order?, error: String?, address: String, phone: String, onBack: () -> Unit, onCall: () -> Unit, onPaid: () -> Unit = {}) {
     Scaffold(
         containerColor = Yeti.Charcoal,
         topBar = {
             TopAppBar(
-                title = { Text(order?.let { "ЗАКАЗ № ${it.id}" } ?: "ЗАКАЗ", style = MaterialTheme.typography.headlineSmall) },
+                title = { Text(order?.let { "Заказ № ${it.id}" } ?: "Заказ", style = MaterialTheme.typography.headlineMedium) },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Назад") } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Yeti.Charcoal),
             )
@@ -519,6 +659,7 @@ fun StatusScreen(order: Order?, error: String?, address: String, phone: String, 
                     }
                 }
             }
+            if (order.payment == "transfer" && order.status != "cancelled") item { PayBlock(order, onPaid) }
             item {
                 Text(
                     if (order.status == "done") "Приятного аппетита!" else "Заберите ${if (order.asap) "примерно " else ""}к ${timeText(order.pickupAt)} · $address",
@@ -534,8 +675,8 @@ fun StatusScreen(order: Order?, error: String?, address: String, phone: String, 
             }
             item {
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("Итого при получении", Modifier.weight(1f))
-                    Text(rub(order.total), style = MaterialTheme.typography.headlineSmall)
+                    Text(if (order.payment == "transfer") "Итого переводом" else "Итого при получении", Modifier.weight(1f))
+                    Text(rub(order.total), style = MaterialTheme.typography.titleLarge.copy(fontSize = 22.sp))
                 }
                 Text("Статус обновляется сам, сразу как кухня его поменяет.", color = Yeti.Muted, style = MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(16.dp))
@@ -546,5 +687,37 @@ fun StatusScreen(order: Order?, error: String?, address: String, phone: String, 
                 }
             }
         }
+    }
+}
+
+/** How to pay by transfer; a phone can't scan its own screen, so the app shows the number to copy, not the QR. */
+@Composable
+private fun PayBlock(order: Order, onPaid: () -> Unit) {
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    var copied by remember { mutableStateOf(false) }
+    Column(
+        Modifier.fillMaxWidth().border(1.dp, Yeti.Sign, MaterialTheme.shapes.large).background(Yeti.Sign.copy(alpha = .12f), MaterialTheme.shapes.large).padding(16.dp).testTag("payblock"),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (order.paymentStatus == "paid") {
+            Text("Оплата ${rub(order.total)} получена ✓", color = Yeti.Led, fontWeight = FontWeight.ExtraBold)
+            return@Column
+        }
+        Text("Оплата переводом", style = MaterialTheme.typography.headlineSmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Сумма", Modifier.weight(1f))
+            Text(rub(order.total), style = MaterialTheme.typography.titleLarge.copy(fontSize = 26.sp))
+        }
+        Text("По номеру телефона через СБП", color = Yeti.Muted)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(phoneText(order.payPhone), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+            OutlinedButton(onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("Телефон", order.payPhone))) }; copied = true }) { Text(if (copied) "Скопировано" else "Скопировать") }
+        }
+        val who = listOf(order.payRecipient, order.payBank.takeIf { it.isNotBlank() }?.let { "($it)" }).filter { !it.isNullOrBlank() }.joinToString(" ")
+        if (who.isNotBlank()) Text("Получатель: $who", color = Yeti.Muted)
+        Text("В комментарии к переводу укажите «Заказ №${order.id}».", color = Yeti.Muted)
+        if (order.paymentStatus == "claimed") Text("Спасибо! Проверяем поступление — статус обновится сам.", color = Yeti.Led, fontWeight = FontWeight.Bold)
+        else Button(onClick = onPaid, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(50)) { Text("Я оплатил") }
     }
 }

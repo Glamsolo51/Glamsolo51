@@ -31,6 +31,7 @@
         <a href="#orders" data-tab="orders">Заказы <b class="badge" id="new-badge" hidden>0</b></a>
         <a href="#menu" data-tab="menu">Меню</a>
         <a href="#reports" data-tab="reports">Отчёты</a>
+        <a href="#site" data-tab="site">Сайт</a>
         <a href="#settings" data-tab="settings">Настройки</a>
       </nav>
       <button class="btn small" id="sound" type="button" aria-pressed="false">🔕 Звук выкл.</button>
@@ -55,15 +56,16 @@
         <div class="toolbar">
           <h1 id="menu-title">Меню и цены</h1>
           <input type="search" id="menu-filter" placeholder="Найти позицию" aria-label="Найти позицию">
-          <button class="btn small" type="button" id="price-export">Скачать прайс (Excel)</button>
-          <button class="btn small primary" type="button" id="price-import">Загрузить цены из Excel</button>
+          <button class="btn small" type="button" id="price-export">⬇ Скачать шаблон Excel</button>
+          <button class="btn small primary" type="button" id="price-import">⬆ Загрузить из Excel</button>
           <input type="file" id="price-file" accept=".xlsx,.csv" hidden>
         </div>
         <div class="menu-layout">
           <nav class="menu-cats" id="menu-cats" aria-label="Разделы меню"></nav>
           <div class="menu-table" id="menu-admin" aria-live="polite"></div>
         </div>
-        <p class="muted hint">Выключите позицию, когда она закончилась — покупатели увидят «Закончилось». Цена сохраняется, когда вы уходите из поля или нажимаете Enter, и действует для новых заказов. Чтобы поменять много цен сразу, скачайте прайс, исправьте столбец «Цена» в Excel и загрузите файл обратно.</p>
+        <p class="muted hint">Выключите позицию, когда она закончилась — покупатели увидят «Закончилось». Цена сохраняется, когда вы уходите из поля или нажимаете Enter, и действует для новых заказов. Фото позиции — нажмите на квадрат слева от названия.</p>
+        <p class="muted hint"><b>Excel:</b> скачайте шаблон — в нём всё меню: раздел, название, описание (состав), объём, цена, наличие и упаковка. Исправьте что нужно, новые позиции добавьте строками внизу без ID, сохраните и загрузите обратно. Перед сохранением кабинет покажет, что изменится; если в файле ошибка — покажет строку и ничего не изменит. Подойдёт и свой прайс с колонками «Позиция» и «Цена».</p>
       </section>
 
       <section id="reports" class="tab-view" aria-labelledby="reports-title" hidden>
@@ -97,6 +99,29 @@
         </div>
       </section>
 
+      <section id="site" class="tab-view narrow" aria-labelledby="site-title" hidden>
+        <div class="toolbar">
+          <h1 id="site-title">Сайт</h1>
+          <a class="btn small" href="/" target="_blank" rel="noopener">Открыть сайт ↗</a>
+        </div>
+        <form id="site-form" class="card">
+          <label>Слоган под названием<input name="tagline" maxlength="80"></label>
+          <label>Текст на первом экране<textarea name="lead" rows="2" maxlength="200"></textarea></label>
+          <label>Текст «О нас»<textarea name="about" rows="4" maxlength="600"></textarea></label>
+          <div class="photo-field">
+            <span class="label">Главное фото</span>
+            <img id="hero-preview" src="/img/products/pizza-pepperoni.webp" alt="Главное фото сайта" width="160" height="160">
+            <label class="btn small file-btn">Заменить<input type="file" accept="image/*" id="hero-file"></label>
+          </div>
+          <div>
+            <span class="label">Фото в разделе «О нас» (до 6)</span>
+            <div class="gallery-edit" id="gallery-edit"></div>
+          </div>
+          <button class="btn primary">Сохранить</button>
+          <p class="ok" id="site-ok" role="status" hidden>Сохранено — сайт уже обновился</p>
+        </form>
+      </section>
+
       <section id="settings" class="tab-view narrow" aria-labelledby="settings-title" hidden>
         <h1 id="settings-title">Настройки</h1>
         <form id="settings-form" class="card">
@@ -110,6 +135,25 @@
           </label>
           <button class="btn primary">Сохранить</button>
           <p class="ok" id="settings-ok" role="status" hidden>Сохранено</p>
+        </form>
+        <form id="payment-form" class="card">
+          <h2>Оплата переводом</h2>
+          <label class="switch-row">
+            <span><b>Принимать оплату по СБП</b><small>Покупатель переводит по номеру телефона из приложения своего банка и нажимает «Я оплатил». Вы проверяете поступление и отмечаете «Оплата пришла» в карточке заказа.</small></span>
+            <input type="checkbox" name="transfer" role="switch">
+          </label>
+          <label>Номер для переводов<input name="phone" type="tel" placeholder="+7 900 000-00-00"></label>
+          <label>Получатель (как его покажет банк)<input name="recipient" maxlength="100" placeholder="Например: Иван И."></label>
+          <label>Банк<input name="bank" maxlength="100" placeholder="Например: Сбербанк"></label>
+          <details>
+            <summary>QR-код для оплаты (нужны реквизиты счёта)</summary>
+            <p class="muted">С реквизитами на сайте появится QR-код: покупатель сканирует его в приложении банка, и сумма с номером заказа заполняются сами. В QR попадают «Получатель» и «Банк» выше — впишите их полностью, как в реквизитах.</p>
+            <label>Расчётный счёт (20 цифр)<input name="account" inputmode="numeric" maxlength="24"></label>
+            <label>БИК (9 цифр)<input name="bic" inputmode="numeric" maxlength="11"></label>
+            <label>Корр. счёт (20 цифр)<input name="corr" inputmode="numeric" maxlength="24"></label>
+          </details>
+          <button class="btn primary">Сохранить</button>
+          <p class="ok" id="payment-ok" role="status" hidden>Сохранено</p>
         </form>
         <form id="password-form" class="card">
           <h2>Пароль кабинета</h2>
@@ -126,7 +170,7 @@
 
   <dialog id="import-dialog" class="modal" aria-labelledby="import-title">
     <div class="modal-head">
-      <h2 id="import-title">Загрузка цен</h2>
+      <h2 id="import-title">Загрузка из Excel</h2>
       <button class="icon-btn" type="button" id="import-close" aria-label="Закрыть">✕</button>
     </div>
     <div id="import-body" class="modal-body"></div>

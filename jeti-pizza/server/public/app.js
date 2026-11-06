@@ -1,4 +1,4 @@
-import { api, h, rub, time, store, plural, sleep, STATUS } from './common.js';
+import { api, h, rub, time, store, plural, sleep, STATUS, phoneText } from './common.js';
 
 const $ = (id) => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
@@ -28,11 +28,24 @@ function icon(name) {
 }
 
 let menu = null;
+let tag = '';
+let sort = '';
 const cart = new Map(Object.entries(store.get('jeti.cart', {})));
 const itemById = (id) => menu?.items.find((i) => i.id === id);
+// Boxes and cups are never picked by hand: one per item that needs it, counted again on the server.
+const packIds = () => new Set(menu?.items.map((i) => i.pack).filter(Boolean));
+function packLines() {
+  const need = new Map();
+  for (const [id, qty] of cart) {
+    const it = itemById(id);
+    if (it?.pack) need.set(it.pack, (need.get(it.pack) ?? 0) + qty);
+  }
+  return [...need].map(([id, qty]) => ({ it: itemById(id), qty })).filter((l) => l.it?.available);
+}
 const saveCart = () => store.set('jeti.cart', Object.fromEntries(cart));
 const cartCount = () => [...cart.values()].reduce((a, b) => a + b, 0);
-const cartTotal = () => [...cart].reduce((sum, [id, qty]) => sum + (itemById(id)?.price ?? 0) * qty, 0);
+const cartTotal = () => [...cart].reduce((sum, [id, qty]) => sum + (itemById(id)?.price ?? 0) * qty, 0)
+  + packLines().reduce((sum, l) => sum + l.it.price * l.qty, 0);
 const closedText = (info) => `Онлайн-заказы принимаем с ${info.open} до ${info.lastOrder ?? info.close}. Ждём вас!`;
 
 function setQty(id, qty) {
@@ -53,10 +66,13 @@ function stepper(id, qty, label) {
 
 async function loadMenu() {
   menu = await api('/api/menu');
-  // Forget cart lines that left the menu.
-  for (const id of cart.keys()) if (!itemById(id)) cart.delete(id);
+  // Forget cart lines that left the menu (and packaging an older page may have put there).
+  const packs = packIds();
+  for (const id of cart.keys()) if (!itemById(id) || packs.has(id)) cart.delete(id);
   saveCart();
   const { info } = menu;
+  renderSite(menu.site);
+  renderFilters();
   const note = !info.acceptingOrders ? 'Онлайн-заказы сейчас на паузе — позвоните нам, примем по телефону.'
     : !info.asapAllowed && info.slots.length === 0 ? closedText(info) : '';
   $('closed-note').textContent = note;
@@ -65,23 +81,69 @@ async function loadMenu() {
   renderCartSummary();
 }
 
+// Texts and photos the staff set in the cabinet.
+function renderSite(site) {
+  $('tagline').textContent = site.tagline;
+  $('lead').textContent = site.lead;
+  $('about-copy').textContent = site.about;
+  if ($('hero-img').getAttribute('src') !== site.hero) $('hero-img').src = site.hero;
+  $('gallery').replaceChildren(...site.gallery.map((src) => h('img', { src, alt: 'Фото из «Йети Пиццы»', loading: 'lazy', width: 600, height: 800 })));
+}
+
 /* ---------- Menu: section cards, and one section at a time ---------- */
+
+// Filters by composition (chicken, mushrooms…) and price order apply to the cards and to the open section.
+const visibleItems = () => {
+  const packs = packIds();
+  return menu.items.filter((i) => !packs.has(i.id) && (!tag || i.tags.includes(tag)));
+};
+
+function renderFilters() {
+  const items = menu.items.filter((i) => !packIds().has(i.id));
+  const tags = menu.tags.filter((t) => items.some((i) => i.tags.includes(t.id)));
+  $('tags').replaceChildren(
+    h('button', { type: 'button', 'aria-pressed': String(!tag), onclick: () => setFilter('') }, 'Всё меню'),
+    ...tags.map((t) => h('button', { type: 'button', 'aria-pressed': String(tag === t.id), onclick: () => setFilter(t.id) }, t.name)));
+}
+
+function setFilter(id) {
+  tag = id;
+  renderFilters();
+  renderMenu();
+}
+
+function itemCard(it) {
+  const qty = cart.get(it.id) ?? 0;
+  const labels = menu.tags.filter((t) => it.tags.includes(t.id));
+  return h('li', { class: `item${it.available ? '' : ' sold-out'}${qty ? ' in-cart' : ''}` },
+    h('div', { class: 'pic' }, it.photo ? h('img', { src: it.photo, alt: it.name, loading: 'lazy', width: 400, height: 300 }) : icon(it.category)),
+    h('div', { class: 'body' },
+      h('h4', {}, it.name),
+      it.description && h('p', {}, it.description),
+      labels.length > 0 && h('div', { class: 'labels' }, labels.map((t) => h('span', { class: t.id }, t.name))),
+      h('div', { class: 'item-buy' },
+        h('span', { class: 'price' }, rub(it.price), it.unit && h('small', {}, ` · ${it.unit}`)),
+        !it.available ? h('span', { class: 'tag' }, 'Закончилось')
+          : qty ? stepper(it.id, qty, it.name)
+            : h('button', { class: 'btn add', type: 'button', 'aria-label': `В корзину: ${it.name}`, onclick: () => setQty(it.id, 1) }, '+ В корзину'))));
+}
 
 // "#menu/pizza" opens a section; the browser's Back button returns to the cards.
 let openCat = null;
 const catFromHash = () => location.hash.match(/^#menu\/([\w-]+)$/)?.[1] ?? null;
-const shownCategories = () => menu.categories.filter((c) => menu.items.some((i) => i.category === c.id));
+const shownCategories = () => menu.categories.filter((c) => visibleItems().some((i) => i.category === c.id));
 
 function renderMenu() {
   if (!menu) return;
   const cats = shownCategories();
   const cat = cats.find((c) => c.id === openCat);
-  $('menu-list').replaceChildren(cat ? categoryView(cat, cats) : categoryCards(cats));
+  $('menu-list').replaceChildren(cats.length ? (cat ? categoryView(cat, cats) : categoryCards(cats))
+    : h('p', { class: 'empty-filter' }, 'Ничего не нашлось — выберите другой фильтр.'));
 }
 
 function categoryCards(cats) {
   return h('ul', { class: 'cat-grid', 'aria-label': 'Разделы меню' }, cats.map((c) => {
-    const items = menu.items.filter((i) => i.category === c.id);
+    const items = visibleItems().filter((i) => i.category === c.id);
     const inCart = items.reduce((n, i) => n + (cart.get(i.id) ?? 0), 0);
     return h('li', {},
       h('a', { class: 'cat-card', href: `#menu/${c.id}` },
@@ -93,24 +155,14 @@ function categoryCards(cats) {
 }
 
 function categoryView(c, cats) {
-  const items = menu.items.filter((i) => i.category === c.id);
+  let items = visibleItems().filter((i) => i.category === c.id);
+  if (sort) items = [...items].sort((a, b) => (sort === 'asc' ? a.price - b.price : b.price - a.price));
   const next = cats[(cats.indexOf(c) + 1) % cats.length];
   return h('section', { class: 'cat', 'aria-labelledby': 'cat-title' },
     h('div', { class: 'cat-head' },
       h('a', { class: 'btn ghost small back', href: '#menu' }, '← Все разделы'),
       h('h3', { id: 'cat-title', tabindex: '-1' }, icon(c.id), c.name)),
-    h('ul', { class: 'items' }, items.map((it) => {
-      const qty = cart.get(it.id) ?? 0;
-      return h('li', { class: `item${it.available ? '' : ' sold-out'}${qty ? ' in-cart' : ''}` },
-        h('div', { class: 'item-text' },
-          h('h4', {}, it.name),
-          it.description && h('p', { class: 'muted' }, it.description)),
-        h('div', { class: 'item-buy' },
-          h('span', { class: 'price' }, rub(it.price), it.unit && h('small', {}, ` · ${it.unit}`)),
-          !it.available ? h('span', { class: 'tag' }, 'Закончилось')
-            : qty ? stepper(it.id, qty, it.name)
-              : h('button', { class: 'btn add', type: 'button', 'aria-label': `В корзину: ${it.name}`, onclick: () => setQty(it.id, 1) }, '+ В корзину')));
-    })),
+    h('ul', { class: 'items' }, items.map(itemCard)),
     h('div', { class: 'cat-foot' },
       h('a', { class: 'btn ghost', href: '#menu' }, '← Все разделы'),
       next !== c && h('a', { class: 'btn ghost', href: `#menu/${next.id}` }, `${next.name} →`)));
@@ -138,11 +190,18 @@ function renderCartSummary() {
 
 function renderCart() {
   const lines = [...cart].map(([id, qty]) => ({ it: itemById(id), qty })).filter((l) => l.it);
+  const auto = packLines();
   $('cart-lines').replaceChildren(...(lines.length
-    ? lines.map(({ it, qty }) => h('div', { class: `cart-line${it.available ? '' : ' sold-out'}` },
-      h('div', {}, h('b', {}, it.name), h('span', { class: 'muted' }, it.available ? `${rub(it.price)}${it.unit ? ` · ${it.unit}` : ''}` : 'Закончилось — уберите из заказа')),
-      stepper(it.id, qty, it.name),
-      h('b', { class: 'line-sum' }, rub(it.price * qty))))
+    ? [
+      ...lines.map(({ it, qty }) => h('div', { class: `cart-line${it.available ? '' : ' sold-out'}` },
+        h('div', {}, h('b', {}, it.name), h('span', { class: 'muted' }, it.available ? `${rub(it.price)}${it.unit ? ` · ${it.unit}` : ''}` : 'Закончилось — уберите из заказа')),
+        stepper(it.id, qty, it.name),
+        h('b', { class: 'line-sum' }, rub(it.price * qty)))),
+      ...auto.map(({ it, qty }) => h('div', { class: 'cart-line auto' },
+        h('div', {}, h('b', {}, `${it.name}${it.unit ? ` ${it.unit}` : ''} × ${qty}`), h('span', {}, 'для самовывоза, добавлено автоматически')),
+        h('span'),
+        h('b', { class: 'line-sum' }, rub(it.price * qty)))),
+    ]
     : [h('p', { class: 'empty' }, 'Корзина пуста. Добавьте что-нибудь вкусное из меню.')]));
   $('checkout').hidden = !lines.length;
   $('checkout-total').textContent = rub(cartTotal());
@@ -155,10 +214,20 @@ function renderCart() {
   $('pickup').replaceChildren(...options);
   if (options.some((o) => o.value === previous)) $('pickup').value = previous;
 
+  $('pay-transfer-option').hidden = !info.payment.transfer;
+  if (!info.payment.transfer) $('checkout').elements.payment.value = 'cash';
+  updatePayLabel();
+
   const blocked = !info.acceptingOrders || options.length === 0;
   $('submit').disabled = blocked || cooldownUntil > Date.now();
   if (blocked) showError(info.acceptingOrders ? closedText(info) : 'Онлайн-заказы сейчас на паузе. Позвоните: +7 927 667-21-21.');
   else if (cooldownUntil <= Date.now()) showError('');
+}
+
+function updatePayLabel() {
+  const transfer = $('checkout').elements.payment.value === 'transfer';
+  $('total-label').textContent = transfer ? 'Итого, переведёте после оформления' : 'Итого, оплата при получении';
+  $('submit').textContent = transfer ? 'Оформить и перейти к оплате' : 'Оформить самовывоз';
 }
 
 function showError(message) {
@@ -223,7 +292,7 @@ async function submit(e) {
     if (err.status === 429 && err.data?.retryAfter) return startCooldown(err.data.retryAfter);
     showError(err.message);
     if (err.data?.field) form.elements[err.data.field]?.focus();
-    if (err.data?.itemId || err.status === 409) await loadMenu().then(renderCart).catch(() => {});
+    if (err.data?.itemId || err.status === 409 || err.data?.field === 'payment') await loadMenu().then(renderCart).catch(() => {});
   } finally {
     if (cooldownUntil <= Date.now()) $('submit').disabled = false;
   }
@@ -285,7 +354,45 @@ function openStatus(id, token) {
   watchOrder(id, token);
 }
 
+async function copy(textValue, button) {
+  try {
+    await navigator.clipboard.writeText(textValue);
+    button.textContent = 'Скопировано ✓';
+  } catch {
+    button.textContent = textValue; // no clipboard over plain http: show it to copy by hand
+  }
+}
+
+function payBlock(o, token) {
+  if (o.payment !== 'transfer' || o.status === 'cancelled') return null;
+  if (o.paymentStatus === 'paid') return h('div', { class: 'payblock' }, h('p', { class: 'ok' }, `Оплата ${rub(o.total)} получена ✓`));
+  const p = o.pay;
+  const qr = p.qr && matchMedia('(min-width: 641px)').matches; // a phone can't scan its own screen
+  return h('div', { class: 'payblock' },
+    h('h3', {}, 'Оплата переводом'),
+    h('div', { class: 'row' }, h('span', {}, 'Сумма'), h('span', { class: 'sum' }, rub(o.total))),
+    h('div', { class: 'row' },
+      h('span', {}, 'По номеру телефона через СБП', h('br'), h('b', { class: 'phone' }, phoneText(p.phone))),
+      h('button', { class: 'btn small', type: 'button', onclick: (e) => copy(p.phone, e.target) }, 'Скопировать номер')),
+    (p.recipient || p.bank) && h('p', { class: 'muted' }, ['Получатель:', p.recipient, p.bank && `(${p.bank})`].filter(Boolean).join(' ')),
+    h('p', { class: 'muted' }, `В комментарии к переводу укажите «Заказ №${o.id}».`),
+    qr && h('img', { class: 'qr', src: `/api/orders/${o.id}/qr.svg?token=${encodeURIComponent(token)}`, alt: 'QR-код для оплаты в приложении банка', width: 200, height: 200 }),
+    qr && h('p', { class: 'muted' }, 'Или отсканируйте QR-код камерой в приложении банка — сумма и назначение заполнятся сами.'),
+    o.paymentStatus === 'claimed'
+      ? h('p', { class: 'ok' }, 'Спасибо! Проверяем поступление — статус обновится сам.')
+      : h('button', { class: 'btn primary', type: 'button', onclick: () => claimPaid(o.id, token) }, 'Я оплатил'));
+}
+
+async function claimPaid(id, token) {
+  try {
+    showOrder(await api(`/api/orders/${id}/paid?token=${encodeURIComponent(token)}`, { method: 'POST' }));
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
 function renderStatus(o) {
+  const token = watched?.id === o.id ? watched.token : '';
   $('status-title').textContent = `Заказ № ${o.id}`;
   const steps = ['new', 'cooking', 'ready', 'done'];
   const at = steps.indexOf(o.status);
@@ -294,9 +401,10 @@ function renderStatus(o) {
       ? h('p', { class: 'form-error' }, 'Заказ отменён. Если это ошибка — позвоните нам: ', h('a', { href: 'tel:+79276672121' }, '+7 927 667-21-21'))
       : h('ol', { class: 'steps' }, steps.map((s, i) =>
         h('li', { class: i < at ? 'past' : i === at ? 'now' : '', 'aria-current': i === at ? 'step' : null }, STATUS[s]))),
+    payBlock(o, token),
     h('p', { class: 'pickup' }, o.status === 'done' ? 'Приятного аппетита!' : `Заберите ${o.asap ? 'примерно ' : ''}к ${time(o.pickupAt)} · пр. Ленина, 22`),
     h('ul', { class: 'status-lines' }, o.items.map((i) => h('li', {}, h('span', {}, `${i.name} × ${i.qty}`), h('span', {}, rub(i.price * i.qty))))),
-    h('p', { class: 'status-total' }, h('span', {}, 'Итого при получении'), h('b', {}, rub(o.total))),
+    h('p', { class: 'status-total' }, h('span', {}, o.payment === 'transfer' ? 'Итого переводом' : 'Итого при получении'), h('b', {}, rub(o.total))),
     h('p', { class: 'muted' }, 'Статус обновляется сам. Адрес этой страницы — ссылка на ваш заказ.'));
 }
 
@@ -309,6 +417,11 @@ function init() {
   $('cart-open').addEventListener('click', openCart);
   $('cart-fab').addEventListener('click', openCart);
   $('checkout').addEventListener('submit', submit);
+  $('pay-choice').addEventListener('change', updatePayLabel);
+  $('sort').addEventListener('change', (e) => {
+    sort = e.target.value;
+    renderMenu();
+  });
   $('my-order').addEventListener('click', () => {
     if (watched) openStatus(watched.id, watched.token);
   });
