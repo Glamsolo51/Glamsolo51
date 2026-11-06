@@ -8,7 +8,9 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.glamsolo.yetipizza.AdminState
@@ -23,6 +25,7 @@ import com.glamsolo.yetipizza.Settings
 import com.glamsolo.yetipizza.ShopInfo
 import com.glamsolo.yetipizza.ShopState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -84,16 +87,37 @@ class ScreensTest {
         compose.onRoot().captureRoboImage("build/screenshots/$name.png")
     }
 
-    @Test fun menuAddsToCart() {
+    @Test fun menuSectionsOpenOneAtATime() {
         var added: Pair<String, Int>? = null
         show("menu") {
             MenuScreen(ShopState(menu = menu, cart = mapOf("2" to 1), hasActiveOrder = true), { id, q -> added = id to q }, {}, {}, {}, {})
         }
+        compose.onNodeWithTag("cart-fab").assertExists() // a round cart button, no bar along the bottom
+        compose.onNodeWithContentDescription("Корзина: 1 шт. на 345 ₽").assertExists()
+        compose.onNodeWithContentDescription("Вход для персонала").assertDoesNotExist()
+        compose.onNodeWithText("Закончилось").assertDoesNotExist() // items are inside the sections
+
+        compose.onNodeWithTag("category-pizza").performClick()
+        compose.onRoot().captureRoboImage("build/screenshots/menu-pizza.png")
         compose.onNodeWithContentDescription("В корзину: Пепперони").performClick()
         assertEquals("1" to 1, added)
         compose.onNodeWithText("Закончилось").assertExists()
-        compose.onNodeWithTag("cart-bar").assertExists()
-        compose.onAllNodesWithText("345 ₽", substring = true).assertCountEquals(2) // card price and cart bar total
+        compose.onNodeWithText("Картошка фри").assertDoesNotExist()
+        compose.onNodeWithText("Дальше: Фри и соусы").performClick()
+        compose.onNodeWithText("Картошка фри").assertExists()
+        compose.onNodeWithContentDescription("Все разделы").performClick()
+        compose.onNodeWithTag("category-hot").assertExists()
+    }
+
+    @Test fun longPressOnTheNameOpensStaffLogin() {
+        var staff = false
+        show("menu-closed") {
+            MenuScreen(ShopState(menu = menu.copy(info = info.copy(orderingOpen = false, asapAllowed = false, slots = emptyList(), lastOrder = "21:30"))), { _, _ -> }, {}, {}, { staff = true }, {})
+        }
+        compose.onNodeWithText("Онлайн-заказы принимаем с 10:00 до 21:30. Ждём вас!").assertExists()
+        compose.onNodeWithTag("cart-fab").assertDoesNotExist()
+        compose.onNodeWithTag("brand").performTouchInput { longClick() }
+        assertTrue(staff)
     }
 
     @Test fun offlineTestBuildAsksForServer() {

@@ -116,15 +116,32 @@ class ShopViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Polls the customer's latest order while its screen is open. */
+    /**
+     * Follows the customer's latest order while its screen is open. The server holds each request until the
+     * kitchen changes the order (or 25 seconds pass), so a new status shows within a moment.
+     */
     suspend fun watchLatestOrder() {
         val saved = prefs.orders.firstOrNull() ?: return
+        var since: Long? = null
+        var failures = 0
         while (true) {
-            runCatching { io { api.order(saved.id, saved.token) } }
-                .onSuccess { o -> _state.update { it.copy(order = o, orderError = null, hasActiveOrder = o.status !in FINAL) } }
-                .onFailure { e -> _state.update { it.copy(orderError = e.message) } }
-            if (_state.value.order?.status in FINAL) return
-            delay(10_000)
+            val started = System.currentTimeMillis()
+            val result = runCatching { io { api.order(saved.id, saved.token, since) } }
+            val o = result.getOrNull()
+            if (o == null) {
+                _state.update { it.copy(orderError = result.exceptionOrNull()?.message) }
+                if ((result.exceptionOrNull() as? ApiException)?.status == 404) return
+                delay(minOf(30_000L, 2_000L shl failures.coerceAtMost(4))) // no connection: retry, slower each time
+                failures++
+                continue
+            }
+            failures = 0
+            val changed = o.updatedAt != since
+            since = o.updatedAt
+            _state.update { it.copy(order = o, orderError = null, hasActiveOrder = o.status !in FINAL) }
+            if (o.status in FINAL) return
+            // A busy server answers at once without a change: then wait before asking again.
+            if (!changed && System.currentTimeMillis() - started < 2_000) delay(3_000)
         }
     }
 

@@ -53,12 +53,17 @@
 
       <section id="menu" class="tab-view" aria-labelledby="menu-title" hidden>
         <div class="toolbar">
-          <h1 id="menu-title">Меню и стоп-лист</h1>
+          <h1 id="menu-title">Меню и цены</h1>
           <input type="search" id="menu-filter" placeholder="Найти позицию" aria-label="Найти позицию">
-          <span class="muted" id="stop-count"></span>
+          <button class="btn small" type="button" id="price-export">Скачать прайс (Excel)</button>
+          <button class="btn small primary" type="button" id="price-import">Загрузить цены из Excel</button>
+          <input type="file" id="price-file" accept=".xlsx,.csv" hidden>
         </div>
-        <p class="muted hint">Выключите позицию, когда она закончилась — покупатели увидят «Закончилось». Цена меняется сразу для новых заказов.</p>
-        <div id="menu-admin"></div>
+        <div class="menu-layout">
+          <nav class="menu-cats" id="menu-cats" aria-label="Разделы меню"></nav>
+          <div class="menu-table" id="menu-admin" aria-live="polite"></div>
+        </div>
+        <p class="muted hint">Выключите позицию, когда она закончилась — покупатели увидят «Закончилось». Цена сохраняется, когда вы уходите из поля или нажимаете Enter, и действует для новых заказов. Чтобы поменять много цен сразу, скачайте прайс, исправьте столбец «Цена» в Excel и загрузите файл обратно.</p>
       </section>
 
       <section id="reports" class="tab-view" aria-labelledby="reports-title" hidden>
@@ -118,5 +123,18 @@
       </section>
     </main>
   </div>
+
+  <dialog id="import-dialog" class="modal" aria-labelledby="import-title">
+    <div class="modal-head">
+      <h2 id="import-title">Загрузка цен</h2>
+      <button class="icon-btn" type="button" id="import-close" aria-label="Закрыть">✕</button>
+    </div>
+    <div id="import-body" class="modal-body"></div>
+    <div class="modal-foot">
+      <button class="btn" type="button" id="import-cancel">Отмена</button>
+      <button class="btn primary" type="button" id="import-apply" hidden>Применить</button>
+    </div>
+  </dialog>
+  <p class="toast" id="toast" role="status" hidden></p>
 </body>
 </html>

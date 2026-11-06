@@ -6,7 +6,8 @@ import { dirname, extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const menu = JSON.parse(readFileSync(join(here, 'menu.json'), 'utf8'));
+// MENU_PATH: another menu file, e.g. one that takes orders around the clock for automated tests.
+const menu = JSON.parse(readFileSync(process.env.MENU_PATH ?? join(here, 'menu.json'), 'utf8'));
 process.env.TZ = menu.info.timezone; // opening hours and reports use the pizzeria's local time
 
 const { openStore, OrderError } = await import('./store.js');
@@ -22,30 +23,90 @@ const TYPES = {
 const SECURITY_HEADERS = {
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
   'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'same-origin',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()',
 };
+const FINAL = ['done', 'cancelled'];
 
 mkdirSync(dirname(DB_PATH), { recursive: true });
 const store = openStore(DB_PATH, menu);
 const generated = store.ensureAdmin(process.env.ADMIN_LOGIN ?? 'admin', process.env.ADMIN_PASSWORD);
 if (generated) console.log(`Staff cabinet: login "${process.env.ADMIN_LOGIN ?? 'admin'}", password "${generated}". Change it in Settings.`);
 
-// Login brute-force guard: 10 failed attempts per address per 15 minutes.
-const failures = new Map();
 const clientIp = (req) =>
   (process.env.TRUST_PROXY ? req.headers['x-forwarded-for']?.split(',')[0].trim() : null) ?? req.socket.remoteAddress;
 
+// Counts events per address in a sliding window, e.g. failed logins or placed orders.
+function limiter(max, windowMs) {
+  const hits = new Map();
+  return {
+    blocked(key) {
+      const h = hits.get(key);
+      return max > 0 && !!h && h.until > Date.now() && h.count >= max;
+    },
+    retryAfter(key) {
+      return Math.max(1, Math.ceil(((hits.get(key)?.until ?? Date.now()) - Date.now()) / 1000));
+    },
+    add(key) {
+      if (hits.size > 5000) for (const [k, v] of hits) if (v.until < Date.now()) hits.delete(k);
+      const h = hits.get(key);
+      const fresh = !h || h.until < Date.now();
+      hits.set(key, { count: fresh ? 1 : h.count + 1, until: fresh ? Date.now() + windowMs : h.until });
+    },
+    clear: (key) => hits.delete(key),
+  };
+}
+// Login brute-force guard: 10 failed attempts per address per 15 minutes.
+const failedLogins = limiter(10, 15 * 60_000);
+// Prank-order flood guard. Generous, because customers of one mobile operator can share an address. 0 turns it off.
+const placedOrders = limiter(Number(process.env.ORDERS_PER_IP ?? 30), 10 * 60_000);
+
+/* A customer's status screen waits here until the kitchen changes the order, so the change shows at once. */
+const WAIT_MS = 25_000;
+const MAX_WAITERS = 5000;
+const waiters = new Map(); // order id -> Set of wake-up functions
+let waiting = 0;
+
+function waitForChange(id, res) {
+  if (waiting >= MAX_WAITERS) return Promise.resolve();
+  return new Promise((resolve) => {
+    if (!waiters.has(id)) waiters.set(id, new Set());
+    const set = waiters.get(id);
+    let settled = false;
+    const wake = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      res.off('close', wake);
+      set.delete(wake);
+      if (!set.size && waiters.get(id) === set) waiters.delete(id);
+      waiting--;
+      resolve();
+    };
+    const timer = setTimeout(wake, WAIT_MS);
+    res.on('close', wake); // the customer closed the screen
+    set.add(wake);
+    waiting++;
+  });
+}
+const wakeOrder = (id) => [...(waiters.get(id) ?? [])].forEach((wake) => wake());
+
 function send(res, status, body, headers = {}) {
+  if (res.destroyed) return;
   res.writeHead(status, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
   res.end(JSON.stringify(body));
 }
 
-async function readJson(req) {
+async function readJson(req, limit = 32_768) {
+  // A cross-site form can post text/plain without asking the browser first; JSON needs CORS, which we never allow.
+  if (!/^application\/json\b/i.test(req.headers['content-type'] ?? '')) throw new OrderError(415, 'Запрос должен быть в формате JSON.');
   let size = 0;
   const chunks = [];
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 32_768) throw new OrderError(413, 'Слишком большой запрос.');
+    if (size > limit) throw new OrderError(413, 'Слишком большой запрос.');
     chunks.push(chunk);
   }
   try {
@@ -81,23 +142,20 @@ function serveStatic(req, res, path) {
     'Cache-Control': ['.html', '.js', '.css', '.json', '.webmanifest'].includes(ext) ? 'no-cache' : 'public, max-age=604800',
   });
   if (req.method === 'HEAD') return res.end();
-  createReadStream(file).pipe(res);
+  createReadStream(file).on('error', () => res.destroy()).pipe(res);
 }
 
 async function handleAdmin(req, res, path, url) {
   if (path === '/api/admin/login' && req.method === 'POST') {
     const ip = clientIp(req);
-    const f = failures.get(ip);
-    if (f && f.until > Date.now() && f.count >= 10) return send(res, 429, { error: 'Слишком много попыток. Подождите 15 минут.' });
+    if (failedLogins.blocked(ip)) return send(res, 429, { error: 'Слишком много попыток. Подождите 15 минут.' });
     const body = await readJson(req);
     const token = store.login(body.login, body.password);
     if (!token) {
-      if (failures.size > 1000) for (const [key, v] of failures) if (v.until < Date.now()) failures.delete(key);
-      const fresh = !f || f.until < Date.now();
-      failures.set(ip, { count: fresh ? 1 : f.count + 1, until: fresh ? Date.now() + 15 * 60_000 : f.until });
+      failedLogins.add(ip);
       return send(res, 401, { error: 'Неверный логин или пароль.' });
     }
-    failures.delete(ip);
+    failedLogins.clear(ip);
     return send(res, 200, { token });
   }
 
@@ -114,12 +172,17 @@ async function handleAdmin(req, res, path, url) {
       return send(res, 200, { ok: true });
     case 'GET /api/admin/orders':
       return send(res, 200, { orders: store.listOrders({ date: url.searchParams.get('date') ?? undefined }), serverTime: Date.now() });
-    case 'POST /api/admin/orders/:id/status':
-      return send(res, 200, store.setStatus(id, (await readJson(req)).status));
+    case 'POST /api/admin/orders/:id/status': {
+      const order = store.setStatus(id, (await readJson(req)).status);
+      wakeOrder(order.id);
+      return send(res, 200, order);
+    }
     case 'GET /api/admin/menu':
       return send(res, 200, store.publicMenu());
     case 'PATCH /api/admin/items/:id':
       return send(res, 200, store.updateItem(id, await readJson(req)));
+    case 'POST /api/admin/prices':
+      return send(res, 200, store.setPrices((await readJson(req, 262_144)).prices));
     case 'GET /api/admin/report':
       return send(res, 200, store.report(url.searchParams.get('from'), url.searchParams.get('to')));
     case 'GET /api/admin/settings':
@@ -141,29 +204,49 @@ async function handle(req, res) {
   if (path.startsWith('/api/admin/')) return handleAdmin(req, res, path, url);
   if (path === '/api/menu' && req.method === 'GET') return send(res, 200, store.publicMenu());
   if (path === '/api/orders' && req.method === 'POST') {
+    const ip = clientIp(req);
+    if (placedOrders.blocked(ip)) {
+      return send(res, 429, { error: `С этого подключения слишком много заказов подряд. Попробуйте через ${Math.ceil(placedOrders.retryAfter(ip) / 60)} мин или позвоните нам.` });
+    }
     const body = await readJson(req);
-    return send(res, 201, store.createOrder(body, body.source));
+    const order = store.createOrder(body, body.source);
+    placedOrders.add(ip);
+    return send(res, 201, order);
   }
   const m = path.match(/^\/api\/orders\/(\d+)$/);
   if (m && req.method === 'GET') {
-    const order = store.publicOrder(m[1], url.searchParams.get('token'));
-    return order ? send(res, 200, order) : send(res, 404, { error: 'Заказ не найден.' });
+    const token = url.searchParams.get('token');
+    let order = store.publicOrder(m[1], token);
+    if (!order) return send(res, 404, { error: 'Заказ не найден.' });
+    // ?since=<updatedAt the screen shows>: answer when the order changes, or after 25 seconds with no change.
+    const since = Number(url.searchParams.get('since'));
+    if (url.searchParams.has('since') && order.updatedAt <= since && !FINAL.includes(order.status)) {
+      await waitForChange(order.id, res);
+      order = store.publicOrder(m[1], token) ?? order;
+    }
+    return send(res, 200, order);
   }
   if (path.startsWith('/api/')) return send(res, 404, { error: 'Не найдено.' });
   if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res, path);
   return send(res, 405, { error: 'Метод не поддерживается.' });
 }
 
-createServer((req, res) => {
+const server = createServer((req, res) => {
   handle(req, res).catch((e) => {
+    if (res.headersSent) return res.destroy();
     if (e instanceof OrderError) {
       const headers = e.extra.retryAfter ? { 'Retry-After': String(e.extra.retryAfter) } : {};
       return send(res, e.status, { error: e.message, ...e.extra }, headers);
     }
+    if (e instanceof URIError) return send(res, 400, { error: 'Неверный адрес.' });
     console.error(e);
     send(res, 500, { error: 'Ошибка сервера. Попробуйте ещё раз или позвоните нам.' });
   });
-}).listen(PORT, () => {
+});
+// A client that sends its request slowly (or never finishes it) is dropped instead of holding a connection.
+server.headersTimeout = 15_000;
+server.requestTimeout = 30_000;
+server.listen(PORT, () => {
   // The address a phone on the same Wi-Fi types into the test app.
   const lan = Object.values(networkInterfaces()).flat().filter((a) => a.family === 'IPv4' && !a.internal);
   console.log(`Йети Пицца: http://localhost:${PORT}  (кабинет: /admin)`);

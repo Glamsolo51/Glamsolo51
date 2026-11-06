@@ -18,7 +18,11 @@ import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -108,18 +112,25 @@ private val typography = Typography(
 
 @Composable
 fun YetiTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = colors,
-        typography = typography,
-        shapes = Shapes(
-            small = RoundedCornerShape(10.dp),
-            medium = RoundedCornerShape(14.dp),
-            large = RoundedCornerShape(18.dp),
-            extraLarge = RoundedCornerShape(24.dp),
-        ),
-        content = content,
-    )
+    // A touch smaller on phones, so more of the menu fits on the screen; tablets keep the normal size.
+    val density = LocalDensity.current
+    val phone = LocalConfiguration.current.smallestScreenWidthDp < 600
+    CompositionLocalProvider(LocalDensity provides if (phone) Density(density.density * PHONE_SCALE, density.fontScale) else density) {
+        MaterialTheme(
+            colorScheme = colors,
+            typography = typography,
+            shapes = Shapes(
+                small = RoundedCornerShape(10.dp),
+                medium = RoundedCornerShape(14.dp),
+                large = RoundedCornerShape(18.dp),
+                extraLarge = RoundedCornerShape(24.dp),
+            ),
+            content = content,
+        )
+    }
 }
+
+private const val PHONE_SCALE = 0.9f
 
 /** Same icon per category as the line drawings over the pizzeria's door. */
 fun categoryIcon(id: String): ImageVector = when (id) {

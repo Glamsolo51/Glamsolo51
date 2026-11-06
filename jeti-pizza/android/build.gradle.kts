@@ -18,8 +18,8 @@ android {
         applicationId = "com.glamsolo.yetipizza"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
         // Plain-http builds are for testing: they let you type the server address (a computer on the same Wi-Fi).
         buildConfigField("boolean", "SERVER_EDITABLE", serverUrl.startsWith("http://").toString())

@@ -1,7 +1,8 @@
-import { api, h, rub, time, store, STATUS } from './common.js';
+import { api, h, rub, time, store, plural, sleep, STATUS } from './common.js';
 
 const $ = (id) => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
+const FINAL = new Set(['done', 'cancelled']);
 // Line icons in the spirit of the icons over the pizzeria's door.
 const ICONS = {
   pizza: 'M24 6 42 40Q24 47 6 40ZM13 31a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0M25 33a3 3 0 1 0 6 0a3 3 0 1 0-6 0M21 21a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0',
@@ -32,6 +33,7 @@ const itemById = (id) => menu?.items.find((i) => i.id === id);
 const saveCart = () => store.set('jeti.cart', Object.fromEntries(cart));
 const cartCount = () => [...cart.values()].reduce((a, b) => a + b, 0);
 const cartTotal = () => [...cart].reduce((sum, [id, qty]) => sum + (itemById(id)?.price ?? 0) * qty, 0);
+const closedText = (info) => `Онлайн-заказы принимаем с ${info.open} до ${info.lastOrder ?? info.close}. Ждём вас!`;
 
 function setQty(id, qty) {
   if (qty <= 0) cart.delete(id);
@@ -55,55 +57,83 @@ async function loadMenu() {
   for (const id of cart.keys()) if (!itemById(id)) cart.delete(id);
   saveCart();
   const { info } = menu;
-  $('open-state').textContent = `${info.isOpen ? 'Открыто' : 'Закрыто'} · ${info.open}–${info.close}`;
-  $('open-dot').classList.toggle('off', !info.isOpen);
-  const note = !info.acceptingOrders
-    ? 'Онлайн-заказы сейчас на паузе — позвоните нам, примем по телефону.'
-    : info.slots.length === 0 ? `На сегодня заказы закончились. Ждём вас завтра с ${info.open}.` : '';
+  const note = !info.acceptingOrders ? 'Онлайн-заказы сейчас на паузе — позвоните нам, примем по телефону.'
+    : !info.asapAllowed && info.slots.length === 0 ? closedText(info) : '';
   $('closed-note').textContent = note;
   $('closed-note').hidden = !note;
-  renderCats();
   renderMenu();
   renderCartSummary();
 }
 
-function renderCats() {
-  const cats = menu.categories.filter((c) => menu.items.some((i) => i.category === c.id));
-  $('cats').replaceChildren(...cats.map((c) => h('a', { href: `#cat-${c.id}`, 'data-cat': c.id }, icon(c.id), c.name)));
-}
+/* ---------- Menu: section cards, and one section at a time ---------- */
+
+// "#menu/pizza" opens a section; the browser's Back button returns to the cards.
+let openCat = null;
+const catFromHash = () => location.hash.match(/^#menu\/([\w-]+)$/)?.[1] ?? null;
+const shownCategories = () => menu.categories.filter((c) => menu.items.some((i) => i.category === c.id));
 
 function renderMenu() {
   if (!menu) return;
-  const sections = menu.categories.map((c) => {
-    const items = menu.items.filter((i) => i.category === c.id);
-    if (!items.length) return null;
-    return h('section', { class: 'cat', id: `cat-${c.id}`, 'aria-labelledby': `cat-title-${c.id}` },
-      h('h3', { id: `cat-title-${c.id}` }, icon(c.id), c.name),
-      h('ul', { class: 'items' }, items.map((it) => {
-        const qty = cart.get(it.id) ?? 0;
-        return h('li', { class: `item${it.available ? '' : ' sold-out'}${qty ? ' in-cart' : ''}` },
-          h('div', { class: 'item-text' },
-            h('h4', {}, it.name),
-            it.description && h('p', { class: 'muted' }, it.description)),
-          h('div', { class: 'item-buy' },
-            h('span', { class: 'price' }, rub(it.price), it.unit && h('small', {}, ` · ${it.unit}`)),
-            !it.available ? h('span', { class: 'tag' }, 'Закончилось')
-              : qty ? stepper(it.id, qty, it.name)
-                : h('button', { class: 'btn add', type: 'button', 'aria-label': `В корзину: ${it.name}`, onclick: () => setQty(it.id, 1) }, '+ В корзину')));
-      })));
-  });
-  $('menu-list').replaceChildren(...sections.filter(Boolean));
+  const cats = shownCategories();
+  const cat = cats.find((c) => c.id === openCat);
+  $('menu-list').replaceChildren(cat ? categoryView(cat, cats) : categoryCards(cats));
 }
+
+function categoryCards(cats) {
+  return h('ul', { class: 'cat-grid', 'aria-label': 'Разделы меню' }, cats.map((c) => {
+    const items = menu.items.filter((i) => i.category === c.id);
+    const inCart = items.reduce((n, i) => n + (cart.get(i.id) ?? 0), 0);
+    return h('li', {},
+      h('a', { class: 'cat-card', href: `#menu/${c.id}` },
+        icon(c.id),
+        h('b', {}, c.name),
+        h('span', {}, `${items.length} ${plural(items.length, ['позиция', 'позиции', 'позиций'])}`),
+        inCart > 0 && h('i', { class: 'in-cart-count', 'aria-label': `В корзине: ${inCart}` }, String(inCart))));
+  }));
+}
+
+function categoryView(c, cats) {
+  const items = menu.items.filter((i) => i.category === c.id);
+  const next = cats[(cats.indexOf(c) + 1) % cats.length];
+  return h('section', { class: 'cat', 'aria-labelledby': 'cat-title' },
+    h('div', { class: 'cat-head' },
+      h('a', { class: 'btn ghost small back', href: '#menu' }, '← Все разделы'),
+      h('h3', { id: 'cat-title', tabindex: '-1' }, icon(c.id), c.name)),
+    h('ul', { class: 'items' }, items.map((it) => {
+      const qty = cart.get(it.id) ?? 0;
+      return h('li', { class: `item${it.available ? '' : ' sold-out'}${qty ? ' in-cart' : ''}` },
+        h('div', { class: 'item-text' },
+          h('h4', {}, it.name),
+          it.description && h('p', { class: 'muted' }, it.description)),
+        h('div', { class: 'item-buy' },
+          h('span', { class: 'price' }, rub(it.price), it.unit && h('small', {}, ` · ${it.unit}`)),
+          !it.available ? h('span', { class: 'tag' }, 'Закончилось')
+            : qty ? stepper(it.id, qty, it.name)
+              : h('button', { class: 'btn add', type: 'button', 'aria-label': `В корзину: ${it.name}`, onclick: () => setQty(it.id, 1) }, '+ В корзину')));
+    })),
+    h('div', { class: 'cat-foot' },
+      h('a', { class: 'btn ghost', href: '#menu' }, '← Все разделы'),
+      next !== c && h('a', { class: 'btn ghost', href: `#menu/${next.id}` }, `${next.name} →`)));
+}
+
+function onHash() {
+  if (!/^#menu(\/|$)/.test(location.hash)) return; // "О нас", "Контакты": leave the menu as it is
+  openCat = catFromHash();
+  renderMenu();
+  $('menu').scrollIntoView({ block: 'start' });
+  if (openCat) document.getElementById('cat-title')?.focus({ preventScroll: true });
+}
+
+/* ---------- Cart and checkout ---------- */
 
 function renderCartSummary() {
   const count = cartCount();
-  const total = cartTotal();
   $('cart-count').hidden = !count;
   $('cart-count').textContent = count;
-  $('cart-total').textContent = count ? rub(total) : 'Корзина';
-  $('cart-bar').hidden = !count;
-  $('cart-bar-count').textContent = `${count} шт. в корзине`;
-  $('cart-bar-total').textContent = `${rub(total)} →`;
+  $('cart-total').textContent = count ? rub(cartTotal()) : 'Корзина';
+  $('cart-fab').hidden = !count;
+  $('cart-fab-count').textContent = count;
+  $('cart-fab').setAttribute('aria-label', `Корзина: ${count} шт. на ${rub(cartTotal())}`);
 }
 
 function renderCart() {
@@ -127,7 +157,7 @@ function renderCart() {
 
   const blocked = !info.acceptingOrders || options.length === 0;
   $('submit').disabled = blocked || cooldownUntil > Date.now();
-  if (blocked) showError(info.acceptingOrders ? `На сегодня заказы закончились. Ждём вас завтра с ${info.open}.` : 'Онлайн-заказы сейчас на паузе. Позвоните: +7 927 667-21-21.');
+  if (blocked) showError(info.acceptingOrders ? closedText(info) : 'Онлайн-заказы сейчас на паузе. Позвоните: +7 927 667-21-21.');
   else if (cooldownUntil <= Date.now()) showError('');
 }
 
@@ -193,25 +223,66 @@ async function submit(e) {
     if (err.status === 429 && err.data?.retryAfter) return startCooldown(err.data.retryAfter);
     showError(err.message);
     if (err.data?.field) form.elements[err.data.field]?.focus();
-    if (err.data?.itemId) await loadMenu().then(renderCart).catch(() => {});
+    if (err.data?.itemId || err.status === 409) await loadMenu().then(renderCart).catch(() => {});
   } finally {
     if (cooldownUntil <= Date.now()) $('submit').disabled = false;
   }
 }
 
-let statusTimer = 0;
-async function openStatus(id, token) {
-  clearTimeout(statusTimer);
-  history.replaceState(null, '', `?order=${id}&t=${encodeURIComponent(token)}`); // the address bar is the order link
-  if (!$('status').open) $('status').showModal();
-  try {
-    const o = await api(`/api/orders/${id}?token=${encodeURIComponent(token)}`);
-    renderStatus(o);
-    $('my-order').hidden = ['done', 'cancelled'].includes(o.status);
-    if ($('status').open && !['done', 'cancelled'].includes(o.status)) statusTimer = setTimeout(() => openStatus(id, token), 10_000);
-  } catch (err) {
-    $('status-body').replaceChildren(h('p', { class: 'form-error' }, err.message));
+/* ---------- The customer's order: its status follows the kitchen at once ---------- */
+
+// The server holds "?since=" requests until the kitchen changes the order (or 25 s pass), so a change shows
+// within a moment, while the page sends only about two requests a minute.
+let watched = null; // { id, token, ctrl, order }
+
+function watchOrder(id, token) {
+  if (watched?.id === Number(id) && !watched.ctrl.signal.aborted) return;
+  watched?.ctrl.abort();
+  const w = { id: Number(id), token, ctrl: new AbortController(), order: null };
+  watched = w;
+  follow(w);
+}
+
+async function follow(w) {
+  let since = null;
+  let failures = 0;
+  while (!w.ctrl.signal.aborted) {
+    const started = Date.now();
+    try {
+      const o = await api(`/api/orders/${w.id}?token=${encodeURIComponent(w.token)}${since == null ? '' : `&since=${since}`}`, { signal: w.ctrl.signal });
+      failures = 0;
+      const changed = o.updatedAt !== since;
+      since = o.updatedAt;
+      w.order = o;
+      showOrder(o);
+      if (FINAL.has(o.status)) return;
+      // A busy server answers at once without a change: then wait before asking again.
+      if (!changed && Date.now() - started < 2000) await sleep(3000, w.ctrl.signal);
+    } catch (err) {
+      if (w.ctrl.signal.aborted) return;
+      if (err.status === 404) {
+        if ($('status').open) $('status-body').replaceChildren(h('p', { class: 'form-error' }, err.message));
+        $('my-order').hidden = true;
+        return;
+      }
+      await sleep(Math.min(30_000, 2000 * 2 ** failures++), w.ctrl.signal); // no connection: retry, slower each time
+    }
   }
+}
+
+function showOrder(o) {
+  $('my-order').hidden = false;
+  $('my-order').classList.toggle('done', FINAL.has(o.status));
+  $('my-order-text').textContent = `№ ${o.id} · ${STATUS[o.status]}`;
+  if ($('status').open) renderStatus(o);
+}
+
+function openStatus(id, token) {
+  history.replaceState(null, '', `?order=${id}&t=${encodeURIComponent(token)}${location.hash}`); // the address bar is the order link
+  if (!$('status').open) $('status').showModal();
+  if (watched?.id === Number(id) && watched.order) renderStatus(watched.order);
+  else $('status-body').replaceChildren(h('p', { class: 'muted' }, 'Загружаем заказ…'));
+  watchOrder(id, token);
 }
 
 function renderStatus(o) {
@@ -229,40 +300,33 @@ function renderStatus(o) {
     h('p', { class: 'muted' }, 'Статус обновляется сам. Адрес этой страницы — ссылка на ваш заказ.'));
 }
 
-function lastOrder() {
-  return store.get('jeti.orders', [])[0];
-}
-
-// Highlight the category currently on screen.
-function watchCategories() {
-  const io = new IntersectionObserver((entries) => {
-    for (const e of entries) {
-      if (!e.isIntersecting) continue;
-      const id = e.target.id.replace('cat-', '');
-      for (const a of $('cats').children) a.classList.toggle('active', a.dataset.cat === id);
-    }
-  }, { rootMargin: '-40% 0px -55% 0px' });
-  new MutationObserver(() => document.querySelectorAll('.cat').forEach((s) => io.observe(s)))
-    .observe($('menu-list'), { childList: true });
-}
+const lastOrder = () => store.get('jeti.orders', [])[0];
 
 function init() {
   const contact = store.get('jeti.contact', {});
   for (const [k, v] of Object.entries(contact)) if ($('checkout').elements[k]) $('checkout').elements[k].value = v;
 
   $('cart-open').addEventListener('click', openCart);
-  $('cart-bar').addEventListener('click', openCart);
+  $('cart-fab').addEventListener('click', openCart);
   $('checkout').addEventListener('submit', submit);
-  $('status').addEventListener('close', () => clearTimeout(statusTimer));
   $('my-order').addEventListener('click', () => {
-    const o = lastOrder();
-    if (o) openStatus(o.id, o.token);
+    if (watched) openStatus(watched.id, watched.token);
   });
-  watchCategories();
+  addEventListener('hashchange', onHash);
+  // A phone may pause a page in the background; ask again as soon as it is back on screen.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || !watched || FINAL.has(watched.order?.status)) return;
+    const { id, token } = watched;
+    watched.ctrl.abort();
+    watchOrder(id, token);
+  });
 
-  loadMenu().catch(() => {
-    $('menu-list').replaceChildren(h('p', { class: 'form-error' }, 'Не удалось загрузить меню. Обновите страницу или позвоните нам.'));
-  });
+  openCat = catFromHash();
+  loadMenu()
+    .then(() => { if (openCat) $('menu').scrollIntoView({ block: 'start' }); })
+    .catch(() => {
+      $('menu-list').replaceChildren(h('p', { class: 'form-error' }, 'Не удалось загрузить меню. Обновите страницу или позвоните нам.'));
+    });
 
   const params = new URLSearchParams(location.search);
   if (params.get('order') && params.get('t')) {
@@ -270,9 +334,10 @@ function init() {
     store.set('jeti.orders', [{ id: Number(params.get('order')), token: params.get('t') }, ...saved].slice(0, 5));
     openStatus(params.get('order'), params.get('t'));
   } else if (lastOrder()) {
+    // The header shows the last order only while it is still in progress.
     const o = lastOrder();
     api(`/api/orders/${o.id}?token=${encodeURIComponent(o.token)}`)
-      .then((order) => { $('my-order').hidden = ['done', 'cancelled'].includes(order.status); })
+      .then((order) => { if (!FINAL.has(order.status)) watchOrder(o.id, o.token); })
       .catch(() => {});
   }
 }

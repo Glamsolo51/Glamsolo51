@@ -4,6 +4,7 @@
   "address": "Канаш, проспект Ленина, 22",
   "phone": "+7 927 667-21-21",
   "open": "10:00",
+  "lastOrder": "21:30",
   "close": "22:00",
   "timezone": "Europe/Moscow",
   "prepMinutes": 20,

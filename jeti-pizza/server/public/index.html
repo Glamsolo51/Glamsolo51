@@ -22,7 +22,7 @@
       <a href="#about">О нас</a>
       <a href="#contacts">Контакты</a>
     </nav>
-    <button class="btn ghost" id="my-order" hidden>Мой заказ</button>
+    <button class="btn ghost" id="my-order" hidden><span class="dot" aria-hidden="true"></span><span id="my-order-text">Мой заказ</span></button>
     <button class="btn primary cart-btn" id="cart-open" aria-label="Корзина">
       <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 4h2l2.4 11h11L21 7H6.2"/><circle cx="9" cy="19.5" r="1.5"/><circle cx="17" cy="19.5" r="1.5"/></svg>
       <span id="cart-total">Корзина</span>
@@ -33,7 +33,7 @@
   <main id="top">
     <section class="hero">
       <div class="hero-copy">
-        <p class="eyebrow"><span class="dot" id="open-dot"></span><span id="open-state">Открыто · 10:00–22:00</span></p>
+        <p class="eyebrow">Пицца · кофе · закуски</p>
         <h1>Йети<br>Пицца</h1>
         <p class="lead">Закажите онлайн и заберите горячую пиццу без очереди. Оплата при получении.</p>
         <div class="hero-actions">
@@ -57,8 +57,7 @@
         <h2 id="menu-title">Меню</h2>
         <p class="muted" id="closed-note" hidden></p>
       </div>
-      <nav class="cats" id="cats" aria-label="Категории меню"></nav>
-      <div id="menu-list" class="menu-list" aria-live="polite">
+      <div id="menu-list" class="menu-list">
         <p class="muted">Загружаем меню…</p>
       </div>
     </section>
@@ -85,7 +84,6 @@
       <div>
         <h2 id="contacts-title">Где забрать</h2>
         <p class="big-text">Канаш, проспект Ленина, 22</p>
-        <p>Каждый день с 10:00 до 22:00</p>
         <p><a href="tel:+79276672121">+7 927 667-21-21</a></p>
         <a class="btn ghost" href="https://yandex.ru/maps/org/71026320584" target="_blank" rel="noopener">Как доехать</a>
       </div>
@@ -94,12 +92,11 @@
 
   <footer class="foot">
     <span>© Йети Пицца, Канаш</span>
-    <a href="/admin/">Вход для персонала</a>
   </footer>
 
-  <button class="cart-bar" id="cart-bar" hidden>
-    <span id="cart-bar-count"></span>
-    <b id="cart-bar-total"></b>
+  <button class="cart-fab" id="cart-fab" aria-label="Корзина" hidden>
+    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 4h2l2.4 11h11L21 7H6.2"/><circle cx="9" cy="19.5" r="1.5"/><circle cx="17" cy="19.5" r="1.5"/></svg>
+    <b class="count" id="cart-fab-count">0</b>
   </button>
 
   <dialog id="cart" class="sheet" aria-labelledby="cart-title">

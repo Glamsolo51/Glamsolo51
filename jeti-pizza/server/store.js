@@ -102,18 +102,21 @@ export function openStore(file, menu, { now = Date.now } = {}) {
     };
   }
 
-  // Pickup slots left today, every 15 minutes, from "now + cooking time" until 15 minutes before closing.
+  // Orders are taken from `open` until `lastOrder` (that whole minute included). Pickup is "as soon as possible"
+  // or a slot every 15 minutes from "now + cooking time" until 15 minutes before `close`.
   function schedule(t = now()) {
     const { open, close, prepMinutes } = menu.info;
-    const openAt = atToday(t, open);
+    const lastOrder = menu.info.lastOrder ?? close;
+    const orderingOpen = t >= atToday(t, open) && t < atToday(t, lastOrder) + 60_000;
     const lastSlot = atToday(t, close) - SLOT_MIN * 60_000;
-    const earliest = Math.max(t, openAt) + prepMinutes * 60_000;
     const step = SLOT_MIN * 60_000;
     const slots = [];
-    for (let s = Math.ceil(earliest / step) * step; s <= lastSlot; s += step) slots.push(hhmm(s));
-    const asapAllowed = t >= openAt && t + prepMinutes * 60_000 <= lastSlot;
-    return { slots, asapAllowed, isOpen: t >= openAt && t < atToday(t, close) };
+    if (orderingOpen) for (let s = Math.ceil((t + prepMinutes * 60_000) / step) * step; s <= lastSlot; s += step) slots.push(hhmm(s));
+    // isOpen stays for app versions that still read it.
+    return { slots, asapAllowed: orderingOpen, orderingOpen, isOpen: orderingOpen, lastOrder };
   }
+
+  const closedMessage = () => `Онлайн-заказы принимаем с ${menu.info.open} до ${menu.info.lastOrder ?? menu.info.close}.`;
 
   const itemRow = (r) => ({
     id: r.id, category: r.category, name: r.name, description: r.description,
@@ -130,9 +133,19 @@ export function openStore(file, menu, { now = Date.now } = {}) {
     };
   }
 
-  function orderView(o, { full }) {
-    const items = db.prepare('SELECT item_id, name, unit, price, qty FROM order_items WHERE order_id = ?').all(o.id)
-      .map((r) => ({ id: r.item_id, name: r.name, unit: r.unit, price: r.price, qty: r.qty }));
+  // Lines of many orders in one query: the staff board asks for every active order every few seconds.
+  function linesOf(ids) {
+    const byOrder = new Map(ids.map((id) => [id, []]));
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      const rows = db.prepare(`SELECT order_id, item_id, name, unit, price, qty FROM order_items
+        WHERE order_id IN (${chunk.map(() => '?').join(',')}) ORDER BY rowid`).all(...chunk);
+      for (const r of rows) byOrder.get(r.order_id).push({ id: r.item_id, name: r.name, unit: r.unit, price: r.price, qty: r.qty });
+    }
+    return byOrder;
+  }
+
+  function orderView(o, { full, items = linesOf([o.id]).get(o.id) }) {
     const view = {
       id: o.id, status: o.status, createdAt: o.created_at, updatedAt: o.updated_at,
       pickupAt: o.pickup_at, asap: o.asap === 1, name: o.name, total: o.total, items,
@@ -144,6 +157,7 @@ export function openStore(file, menu, { now = Date.now } = {}) {
     const t = now();
     const s = settings();
     if (!s.acceptingOrders) throw new OrderError(409, 'Сейчас пиццерия не принимает онлайн-заказы. Позвоните нам, пожалуйста.');
+    if (!schedule(t).orderingOpen) throw new OrderError(409, closedMessage(), { field: 'pickupTime' });
 
     const name = text(input?.name, 60);
     const phone = normalizePhone(input?.phone);
@@ -166,16 +180,15 @@ export function openStore(file, menu, { now = Date.now } = {}) {
       }
     }
 
-    const { open, close, prepMinutes } = menu.info;
+    const { close, prepMinutes } = menu.info;
     let pickupAt;
     const asap = !input?.pickupTime || input.pickupTime === 'asap';
     if (asap) {
-      if (!schedule(t).asapAllowed) throw new OrderError(400, 'Сейчас можно заказать только ко времени. Выберите время самовывоза.', { field: 'pickupTime' });
       pickupAt = t + prepMinutes * 60_000;
     } else {
       const at = /^([01]\d|2[0-3]):[0-5]\d$/.test(input.pickupTime) ? atToday(t, input.pickupTime) : NaN;
       // 10 minutes of grace: a slot can slip into the past while the customer fills in the form.
-      const earliest = Math.max(t, atToday(t, open)) + (prepMinutes - 10) * 60_000;
+      const earliest = t + (prepMinutes - 10) * 60_000;
       if (!(at >= earliest && at <= atToday(t, close) - SLOT_MIN * 60_000))
         throw new OrderError(400, 'Это время самовывоза уже недоступно. Выберите другое.', { field: 'pickupTime' });
       pickupAt = at;
@@ -219,11 +232,13 @@ export function openStore(file, menu, { now = Date.now } = {}) {
 
   // Active orders of any day, or every order created on the given local date.
   function listOrders({ date } = {}) {
+    if (date !== undefined && !/^\d{4}-\d\d-\d\d$/.test(date)) throw new OrderError(400, 'Укажите день в формате ГГГГ-ММ-ДД.');
     const rows = date
       ? db.prepare('SELECT * FROM orders WHERE created_at >= ? AND created_at < ? ORDER BY id DESC')
         .all(dayStart(date), dayStart(date) + 86_400_000)
       : db.prepare(`SELECT * FROM orders WHERE status IN ('new', 'cooking', 'ready') ORDER BY pickup_at, id`).all();
-    return rows.map((o) => orderView(o, { full: true }));
+    const lines = linesOf(rows.map((o) => o.id));
+    return rows.map((o) => orderView(o, { full: true, items: lines.get(o.id) }));
   }
 
   function setStatus(id, status) {
@@ -243,6 +258,22 @@ export function openStore(file, menu, { now = Date.now } = {}) {
     }
     db.prepare('UPDATE items SET available = ?, price = ? WHERE id = ?').run(item.available, item.price, item.id);
     return itemRow(item);
+  }
+
+  // Price list imported from Excel in the cabinet: every price is checked first, then all are saved together.
+  function setPrices(list) {
+    if (!Array.isArray(list) || list.length === 0) throw new OrderError(400, 'В файле нет цен для обновления.');
+    if (list.length > 2000) throw new OrderError(400, 'Слишком много строк в одном файле.');
+    const find = db.prepare('SELECT name FROM items WHERE id = ?');
+    for (const p of list) {
+      const item = find.get(String(p?.id));
+      if (!item) throw new OrderError(400, `Позиции с кодом ${String(p?.id).slice(0, 40)} нет в меню.`);
+      if (!Number.isInteger(p.price) || p.price < 1 || p.price > 100_000)
+        throw new OrderError(400, `«${item.name}»: цена должна быть целым числом рублей от 1 до 100 000.`);
+    }
+    const update = db.prepare('UPDATE items SET price = ? WHERE id = ?');
+    transaction(() => { for (const p of list) update.run(p.price, String(p.id)); });
+    return { updated: list.length, items: publicMenu().items };
   }
 
   function updateSettings(patch) {
@@ -328,7 +359,7 @@ export function openStore(file, menu, { now = Date.now } = {}) {
 
   return {
     db, settings, schedule, publicMenu, createOrder, publicOrder, listOrders, setStatus,
-    updateItem, updateSettings, report,
+    updateItem, setPrices, updateSettings, report,
     ensureAdmin, login, checkSession, logout, changePassword,
   };
 }

@@ -12,9 +12,10 @@ export const STATUS = {
   cancelled: 'Отменён',
 };
 
-export async function api(path, { method = 'GET', body, token } = {}) {
+export async function api(path, { method = 'GET', body, token, signal } = {}) {
   const res = await fetch(path, {
     method,
+    signal,
     headers: {
       ...(body ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -25,6 +26,18 @@ export async function api(path, { method = 'GET', body, token } = {}) {
   if (!res.ok) throw Object.assign(new Error(data.error ?? 'Нет связи с сервером.'), { status: res.status, data });
   return data;
 }
+
+// 1 позиция, 2 позиции, 5 позиций
+export function plural(n, [one, few, many]) {
+  const d = n % 10;
+  const t = n % 100;
+  return d === 1 && t !== 11 ? one : d >= 2 && d <= 4 && (t < 12 || t > 14) ? few : many;
+}
+
+export const sleep = (ms, signal) => new Promise((resolve) => {
+  const timer = setTimeout(resolve, ms);
+  signal?.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+});
 
 // Builds DOM without innerHTML, so names and comments typed by customers can never inject markup.
 export function h(tag, attrs = {}, ...children) {

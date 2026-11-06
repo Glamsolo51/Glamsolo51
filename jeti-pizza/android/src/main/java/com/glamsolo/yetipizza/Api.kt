@@ -26,6 +26,9 @@ data class ShopInfo(
     val isOpen: Boolean,
     val acceptingOrders: Boolean,
     val mapUrl: String,
+    /** Orders are taken from [open] until this time; servers before it only sent [close]. */
+    val lastOrder: String = close,
+    val orderingOpen: Boolean = isOpen,
 )
 
 data class Category(val id: String, val name: String)
@@ -60,6 +63,8 @@ data class Order(
     val source: String = "",
     // Only right after the customer placed it:
     val token: String = "",
+    /** Last change of the status; the customer's screen waits for a newer one. */
+    val updatedAt: Long = createdAt,
 )
 
 data class ReportRow(val name: String, val unit: String, val category: String, val qty: Int, val revenue: Int, val share: Double)
@@ -96,7 +101,12 @@ class Api(private val baseUrl: String, var token: String? = null) {
             .put("items", JSONArray(cart.map { (id, qty) -> JSONObject().put("id", id).put("qty", qty) })),
     ).toOrder()
 
-    fun order(id: Long, token: String): Order = call("GET", "/api/orders/$id?token=${enc(token)}").toOrder()
+    /**
+     * The customer's order. With [since] (the updatedAt the screen shows) the server holds the answer until the
+     * kitchen changes the order, or about 25 seconds pass, so a new status appears at once.
+     */
+    fun order(id: Long, token: String, since: Long? = null): Order =
+        call("GET", "/api/orders/$id?token=${enc(token)}" + (since?.let { "&since=$it" } ?: ""), readTimeoutMs = if (since != null) 40_000 else 15_000).toOrder()
 
     fun login(login: String, password: String): String =
         call("POST", "/api/admin/login", JSONObject().put("login", login).put("password", password)).getString("token")
@@ -144,11 +154,11 @@ class Api(private val baseUrl: String, var token: String? = null) {
         call("POST", "/api/admin/password", JSONObject().put("current", current).put("next", next))
     }
 
-    private fun call(method: String, path: String, body: JSONObject? = null): JSONObject {
+    private fun call(method: String, path: String, body: JSONObject? = null, readTimeoutMs: Int = 15_000): JSONObject {
         val conn = (URL(baseUrl + path).openConnection() as HttpURLConnection)
         try {
             conn.connectTimeout = 10_000
-            conn.readTimeout = 15_000
+            conn.readTimeout = readTimeoutMs
             // HttpURLConnection has no PATCH; the server reads the override header.
             conn.requestMethod = if (method == "PATCH") "POST" else method
             if (method == "PATCH") conn.setRequestProperty("X-HTTP-Method-Override", "PATCH")
@@ -197,6 +207,8 @@ private fun JSONObject.toMenu(): Menu {
             prepMinutes = i.getInt("prepMinutes"), slots = (0 until slots.length()).map { slots.getString(it) },
             asapAllowed = i.getBoolean("asapAllowed"), isOpen = i.getBoolean("isOpen"),
             acceptingOrders = i.getBoolean("acceptingOrders"), mapUrl = i.optString("mapUrl"),
+            lastOrder = i.optString("lastOrder").ifBlank { i.getString("close") },
+            orderingOpen = i.optBoolean("orderingOpen", i.getBoolean("isOpen")),
         ),
         categories = getJSONArray("categories").map { Category(it.getString("id"), it.getString("name")) },
         items = getJSONArray("items").map { it.toItem() },
@@ -208,7 +220,7 @@ private fun JSONObject.toOrder() = Order(
     asap = getBoolean("asap"), name = getString("name"), total = getInt("total"),
     items = getJSONArray("items").map { OrderLine(it.getString("id"), it.getString("name"), it.optString("unit"), it.getInt("price"), it.getInt("qty")) },
     phone = optString("phone"), email = optString("email"), comment = optString("comment"), source = optString("source"),
-    token = optString("token"),
+    token = optString("token"), updatedAt = optLong("updatedAt", getLong("createdAt")),
 )
 
 private fun JSONObject.toSettings() = Settings(getBoolean("acceptingOrders"), getInt("cooldownMinutes"))

@@ -1,4 +1,6 @@
-import { api as request, h, rub, time, store, phoneText } from '/common.js';
+import { api as request, h, rub, time, store, phoneText, plural } from '/common.js';
+import { readTable, writeXlsx } from '/admin/xlsx.js';
+import { priceListRows, matchPrices, WIDTHS } from '/admin/prices.js';
 
 const $ = (id) => document.getElementById(id);
 const POLL_MS = 5000;
@@ -208,7 +210,9 @@ for (const b of document.querySelectorAll('[data-mode]')) {
 }
 $('history-date').addEventListener('change', loadHistory);
 
-/* ---------- Menu and stop-list ---------- */
+/* ---------- Menu, prices and stop-list: one section at a time ---------- */
+let menuCat = store.get('jeti.admin.cat', null); // a category id, 'all' or 'stop'
+
 async function loadMenu() {
   try {
     menuCache = await api('/api/admin/menu');
@@ -216,35 +220,168 @@ async function loadMenu() {
   } catch { /* handled by api() */ }
 }
 
+const menuCategories = () => menuCache.categories.filter((c) => menuCache.items.some((i) => i.category === c.id));
+
 function renderMenu() {
-  const q = $('menu-filter').value.trim().toLowerCase();
-  const items = menuCache.items.filter((i) => !q || i.name.toLowerCase().includes(q));
-  $('stop-count').textContent = `В стоп-листе: ${menuCache.items.filter((i) => !i.available).length}`;
-  $('menu-admin').replaceChildren(...menuCache.categories.map((c) => {
-    const list = items.filter((i) => i.category === c.id);
-    if (!list.length) return null;
-    return h('section', { class: 'menu-cat' }, h('h2', {}, c.name), list.map((it) =>
-      h('div', { class: `menu-row${it.available ? '' : ' off'}` },
-        h('div', { class: 'name' }, h('b', {}, it.name), h('small', {}, [it.unit, it.description].filter(Boolean).join(' · '))),
-        h('label', { class: 'price-input' },
-          h('input', { type: 'number', min: 1, max: 100000, step: 1, value: it.price, 'aria-label': `Цена: ${it.name}`, onchange: (e) => patchItem(it, { price: Number(e.target.value) }, e.target) }),
-          '₽'),
-        h('label', { class: 'switch' },
-          h('input', { type: 'checkbox', role: 'switch', checked: it.available, onchange: (e) => patchItem(it, { available: e.target.checked }, e.target) }),
-          h('span', {}, it.available ? 'В наличии' : 'Нет')))));
-  }).filter(Boolean));
+  if (!menuCache) return;
+  const cats = menuCategories();
+  if (!['all', 'stop'].includes(menuCat) && !cats.some((c) => c.id === menuCat)) menuCat = cats[0]?.id ?? 'all';
+  renderMenuCats();
+  renderMenuList();
 }
 
+function renderMenuCats() {
+  const { items } = menuCache;
+  const searching = !!$('menu-filter').value.trim();
+  const stopped = items.filter((i) => !i.available).length;
+  const chip = (id, label, count, extra = '') => h('button', {
+    type: 'button', class: `menu-cat${extra}`, 'aria-pressed': String(!searching && menuCat === id),
+    onclick: () => {
+      menuCat = id;
+      store.set('jeti.admin.cat', id);
+      $('menu-filter').value = '';
+      renderMenu();
+    },
+  }, h('span', {}, label), h('b', {}, String(count)));
+  $('menu-cats').replaceChildren(
+    chip('all', 'Все позиции', items.length),
+    chip('stop', 'Стоп-лист', stopped, stopped ? ' warn' : ''),
+    h('hr'),
+    ...menuCategories().map((c) => chip(c.id, c.name, items.filter((i) => i.category === c.id).length)));
+}
+
+function renderMenuList() {
+  const q = $('menu-filter').value.trim().toLowerCase();
+  const { items } = menuCache;
+  const shown = q ? items.filter((i) => i.name.toLowerCase().includes(q))
+    : menuCat === 'all' ? items
+      : menuCat === 'stop' ? items.filter((i) => !i.available)
+        : items.filter((i) => i.category === menuCat);
+  // A single section needs no subheadings; search, "all" and the stop-list are grouped by section.
+  const groups = q || menuCat === 'all' || menuCat === 'stop'
+    ? menuCategories().map((c) => [c, shown.filter((i) => i.category === c.id)]).filter(([, list]) => list.length)
+    : [[null, shown]];
+  $('menu-admin').replaceChildren(
+    h('div', { class: 'menu-row head', 'aria-hidden': 'true' }, h('span', {}, 'Позиция'), h('span', {}, 'Цена, ₽'), h('span', {}, 'Наличие')),
+    ...(shown.length
+      ? groups.flatMap(([c, list]) => [...(c ? [h('h2', { class: 'menu-group' }, c.name)] : []), ...list.map(menuRow)])
+      : [h('p', { class: 'muted empty' }, q ? 'Ничего не нашли.' : 'В стоп-листе пусто — всё в наличии.')]));
+}
+
+function menuRow(it) {
+  return h('div', { class: `menu-row${it.available ? '' : ' off'}` },
+    h('div', { class: 'name' },
+      h('b', {}, it.name),
+      (it.unit || it.description) && h('small', { title: it.description }, [it.unit, it.description].filter(Boolean).join(' · '))),
+    h('input', {
+      type: 'number', class: 'price', min: 1, max: 100000, step: 1, value: it.price, 'aria-label': `Цена: ${it.name}`,
+      onchange: (e) => patchItem(it, { price: Number(e.target.value) }, e.target),
+      onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); },
+    }),
+    h('label', { class: 'switch' },
+      h('input', { type: 'checkbox', role: 'switch', checked: it.available, 'aria-label': `В наличии: ${it.name}`, onchange: (e) => patchItem(it, { available: e.target.checked }, e.target) }),
+      h('span', {}, it.available ? 'В наличии' : 'Нет')));
+}
+
+// Updates the row in place, so Tab still moves on to the next price.
 async function patchItem(item, patch, input) {
+  const row = input.closest('.menu-row');
   try {
     Object.assign(item, await api(`/api/admin/items/${item.id}`, { method: 'PATCH', body: patch }));
+    toast('price' in patch ? `Сохранено: ${item.name} — ${rub(item.price)}` : `${item.name}: ${item.available ? 'в наличии' : 'в стоп-листе'}`);
   } catch (e) {
-    alert(e.message);
+    if (e.status !== 401) alert(e.message);
     if ('price' in patch) input.value = item.price;
+    else input.checked = item.available;
   }
-  renderMenu();
+  row.classList.toggle('off', !item.available);
+  row.querySelector('.switch span').textContent = item.available ? 'В наличии' : 'Нет';
+  renderMenuCats();
 }
 $('menu-filter').addEventListener('input', () => menuCache && renderMenu());
+
+function download(blob, name) {
+  const a = h('a', { href: URL.createObjectURL(blob), download: name });
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+let toastTimer = 0;
+function toast(text) {
+  $('toast').textContent = text;
+  $('toast').hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { $('toast').hidden = true; }, 3000);
+}
+
+/* ---------- Prices from Excel ---------- */
+$('price-export').addEventListener('click', async () => {
+  try {
+    menuCache = await api('/api/admin/menu');
+    const book = writeXlsx(priceListRows(menuCache), { sheet: 'Прайс', widths: WIDTHS });
+    download(new Blob([book], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `yeti-prices_${today()}.xlsx`);
+  } catch (e) {
+    if (e.status !== 401) alert(e.message);
+  }
+});
+
+$('price-import').addEventListener('click', () => $('price-file').click());
+$('price-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  e.target.value = ''; // the same file can be chosen again after editing it
+  if (!file) return;
+  try {
+    if (file.size > 5 * 1024 * 1024) throw new Error('Файл больше 5 МБ. Для цен нужен небольшой файл: скачайте прайс из кабинета.');
+    menuCache = await api('/api/admin/menu'); // compare with the prices as they are right now
+    renderMenu();
+    showImport(file.name, matchPrices(await readTable(await file.arrayBuffer()), menuCache.items));
+  } catch (err) {
+    if (err.status !== 401) showImport(file.name, null, err.message);
+  }
+});
+
+let pendingPrices = [];
+function showImport(fileName, result, error) {
+  $('import-title').textContent = `Цены из «${fileName}»`;
+  pendingPrices = result?.changes ?? [];
+  const problems = (title, list, text) => list.length > 0 && h('details', { class: 'problems' },
+    h('summary', {}, `${title}: ${list.length}`),
+    h('ul', {}, list.slice(0, 200).map((x) => h('li', {}, `Строка ${x.row}: ${text(x)}`))));
+  $('import-body').replaceChildren(...(error ? [h('p', { class: 'form-error' }, error)] : [
+    h('p', {}, pendingPrices.length
+      ? `Изменятся цены у ${pendingPrices.length} ${plural(pendingPrices.length, ['позиции', 'позиций', 'позиций'])}. Без изменений: ${result.unchanged}.`
+      : `Новых цен в файле нет: все ${result.unchanged} совпадают с меню.`),
+    pendingPrices.length > 0 && h('div', { class: 'table-wrap' }, h('table', { class: 'report changes' },
+      h('thead', {}, h('tr', {}, h('th', {}, 'Позиция'), h('th', { class: 'num' }, 'Было'), h('th', { class: 'num' }, 'Станет'))),
+      h('tbody', {}, pendingPrices.map(({ item, price }) => h('tr', {},
+        h('td', {}, item.name, item.unit && h('small', {}, ` · ${item.unit}`)),
+        h('td', { class: 'num muted' }, rub(item.price)),
+        h('td', { class: `num ${price > item.price ? 'up' : 'down'}` }, rub(price))))))),
+    problems('Не нашли в меню, пропущены', result.notFound, (x) => x.name),
+    problems('Неверная цена, пропущены', result.invalid, (x) => `${x.name} — «${x.value}»`),
+    problems('Несколько позиций с таким названием, укажите «Код»', result.ambiguous, (x) => x.name),
+  ]).filter(Boolean));
+  $('import-apply').hidden = !pendingPrices.length;
+  $('import-apply').disabled = false;
+  $('import-apply').textContent = `Применить ${pendingPrices.length} ${plural(pendingPrices.length, ['цену', 'цены', 'цен'])}`;
+  $('import-cancel').textContent = pendingPrices.length ? 'Отмена' : 'Закрыть';
+  if (!$('import-dialog').open) $('import-dialog').showModal();
+}
+
+$('import-apply').addEventListener('click', async () => {
+  $('import-apply').disabled = true;
+  try {
+    const r = await api('/api/admin/prices', { method: 'POST', body: { prices: pendingPrices.map(({ item, price }) => ({ id: item.id, price })) } });
+    menuCache.items = r.items;
+    renderMenu();
+    $('import-dialog').close();
+    toast(`Цены обновлены: ${r.updated}`);
+  } catch (e) {
+    $('import-apply').disabled = false;
+    if (e.status !== 401) $('import-body').prepend(h('p', { class: 'form-error' }, e.message));
+  }
+});
+for (const id of ['import-close', 'import-cancel']) $(id).addEventListener('click', () => $('import-dialog').close());
 
 /* ---------- Reports ---------- */
 let report = null;
@@ -313,10 +450,7 @@ $('csv').addEventListener('click', () => {
   const lines = [['Позиция', 'Объём', 'Категория', 'Продано, шт.', 'Выручка, ₽', 'Доля, %'].map(esc).join(';'),
     ...report.items.map((r) => [r.name, r.unit, menuCache?.categories.find((c) => c.id === r.category)?.name ?? '', r.qty, r.revenue, (r.share * 100).toFixed(1).replace('.', ',')].map(esc).join(';'))];
   // BOM and semicolons: Excel in Russian locale opens it correctly with a double click.
-  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
-  const a = h('a', { href: URL.createObjectURL(blob), download: `yeti-report_${report.from}_${report.to}.csv` });
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  download(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }), `yeti-report_${report.from}_${report.to}.csv`);
 });
 
 /* ---------- Settings ---------- */

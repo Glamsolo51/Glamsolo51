@@ -40,31 +40,38 @@ jobs:
         working-directory: jeti-pizza/server
         run: |
           npm test
-          DB_PATH=$RUNNER_TEMP/pizza.db ADMIN_PASSWORD=ci-password-123 npm start &
+          # Orders are taken 10:00-21:30 Moscow time; the app's live test runs at any hour, so it gets an all-day menu.
+          node -e "const m=require('./menu.json'); Object.assign(m.info, {open:'00:00', lastOrder:'23:59', close:'23:59'}); require('fs').writeFileSync(process.env.RUNNER_TEMP + '/menu.json', JSON.stringify(m))"
+          DB_PATH=$RUNNER_TEMP/pizza.db MENU_PATH=$RUNNER_TEMP/menu.json ADMIN_PASSWORD=ci-password-123 npm start &
           sleep 2
 
-      - name: Test, lint and build
+      # The two apps build in separate steps, so a failing PhoneHop test does not hold back the pizza APK.
+      - name: Pizza app — test, lint and build
         env:
-          PHONEHOP_STOREPASSWORD: ${{ secrets.PHONEHOP_STORE_PASSWORD }}
-          PHONEHOP_KEYALIAS: ${{ secrets.PHONEHOP_KEY_ALIAS }}
-          PHONEHOP_KEYPASSWORD: ${{ secrets.PHONEHOP_KEY_PASSWORD }}
           PIZZA_SERVER_URL: http://127.0.0.1:8080
           PIZZA_ADMIN_PASSWORD: ci-password-123
         # Set the repository variable PIZZA_SERVER_URL (Settings → Variables) to build the pizza app for your server.
         run: >
-          ./gradlew :core:test :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
-          :pizza:testDebugUnitTest :pizza:lintDebug :pizza:assembleRelease
+          ./gradlew :pizza:testDebugUnitTest :pizza:lintDebug :pizza:assembleRelease
           -PpizzaServerUrl=${{ vars.PIZZA_SERVER_URL }}
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: PhoneHop-apk
-          path: app/build/outputs/apk/release/*.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: YetiPizza-apk
           path: jeti-pizza/android/build/outputs/apk/release/*.apk
+
+      - name: PhoneHop — test, lint and build
+        if: always()
+        env:
+          PHONEHOP_STOREPASSWORD: ${{ secrets.PHONEHOP_STORE_PASSWORD }}
+          PHONEHOP_KEYALIAS: ${{ secrets.PHONEHOP_KEY_ALIAS }}
+          PHONEHOP_KEYPASSWORD: ${{ secrets.PHONEHOP_KEY_PASSWORD }}
+        run: ./gradlew :core:test :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PhoneHop-apk
+          path: app/build/outputs/apk/release/*.apk
 
       - uses: actions/upload-artifact@v4
         if: always()

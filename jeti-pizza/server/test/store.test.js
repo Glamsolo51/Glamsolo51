@@ -60,16 +60,35 @@ test('cooldown blocks the same phone or the same email, not cancelled orders', (
   assert.ok(first.id);
 });
 
-test('ordering respects opening hours, slots and the stop-list', () => {
-  const late = setup(21, 50).store;
-  rejects(() => late.createOrder(order(), 'web'), 400);
-  assert.deepEqual(late.schedule().slots, []);
+test('orders are taken from 10:00 to 21:30 only', () => {
+  const morning = setup(9, 59).store;
+  assert.equal(morning.schedule().orderingOpen, false);
+  assert.deepEqual(morning.schedule().slots, []);
+  rejects(() => morning.createOrder(order(), 'web'), 409);
+  rejects(() => morning.createOrder(order({ pickupTime: '10:30' }), 'web'), 409); // no pre-orders before opening
 
-  const morning = setup(9, 0).store;
-  assert.equal(morning.schedule().slots[0], '10:30');
-  rejects(() => morning.createOrder(order(), 'web'), 400); // asap before opening
-  assert.equal(morning.createOrder(order({ pickupTime: '10:30' }), 'web').pickupAt, new Date(2026, 10, 6, 10, 30).getTime());
-  rejects(() => morning.createOrder(order({ pickupTime: '23:00', phone: '+79000000001', email: 'b@b.ru' }), 'web'), 400);
+  const opening = setup(10, 0).store;
+  assert.equal(opening.schedule().slots[0], '10:30');
+  assert.equal(opening.createOrder(order(), 'web').pickupAt, new Date(2026, 10, 6, 10, 20).getTime());
+
+  const lastMinute = setup(21, 30).store;
+  assert.equal(lastMinute.schedule().asapAllowed, true);
+  assert.deepEqual(lastMinute.schedule().slots, []); // 21:30 + 20 min cooking is past the last 21:45 slot
+  assert.equal(lastMinute.createOrder(order(), 'web').pickupAt, new Date(2026, 10, 6, 21, 50).getTime());
+
+  const evening = setup(21, 15).store;
+  assert.deepEqual(evening.schedule().slots, ['21:45']);
+
+  const late = setup(21, 31).store;
+  assert.equal(late.schedule().orderingOpen, false);
+  rejects(() => late.createOrder(order(), 'web'), 409);
+});
+
+test('pickup slots and the stop-list', () => {
+  const noon = setup(12, 0).store;
+  rejects(() => noon.createOrder(order({ pickupTime: '23:00' }), 'web'), 400);
+  rejects(() => noon.createOrder(order({ pickupTime: '11:00' }), 'web'), 400); // in the past
+  assert.equal(noon.createOrder(order({ pickupTime: '13:00' }), 'web').pickupAt, new Date(2026, 10, 6, 13, 0).getTime());
 
   const { store } = setup();
   store.updateItem(pizza.id, { available: false });
@@ -77,6 +96,31 @@ test('ordering respects opening hours, slots and the stop-list', () => {
   rejects(() => store.createOrder({ ...order(), items: [] }, 'web'), 400);
   store.updateSettings({ acceptingOrders: false });
   rejects(() => store.createOrder(order({ items: [{ id: sauce.id, qty: 1 }] }), 'web'), 409);
+});
+
+test('the board lists every active order with its own lines', () => {
+  const { store } = setup();
+  store.updateSettings({ cooldownMinutes: 0 });
+  const a = store.createOrder(order(), 'web');
+  const b = store.createOrder(order({ items: [{ id: sauce.id, qty: 4 }] }), 'app');
+  const list = store.listOrders();
+  assert.deepEqual(list.map((o) => o.id), [a.id, b.id]);
+  assert.deepEqual(list[0].items.map((i) => [i.id, i.qty]), [[pizza.id, 2], [sauce.id, 2]]);
+  assert.deepEqual(list[1].items.map((i) => [i.id, i.qty]), [[sauce.id, 4]]);
+  assert.equal(list[1].phone, '+79271112233');
+  rejects(() => store.listOrders({ date: 'yesterday' }), 400);
+});
+
+test('price list import updates all prices at once or none', () => {
+  const { store } = setup();
+  const r = store.setPrices([{ id: pizza.id, price: 399 }, { id: sauce.id, price: 55 }]);
+  assert.equal(r.updated, 2);
+  assert.equal(store.publicMenu().items.find((i) => i.id === pizza.id).price, 399);
+  rejects(() => store.setPrices([{ id: pizza.id, price: 500 }, { id: sauce.id, price: 12.5 }]), 400);
+  rejects(() => store.setPrices([{ id: pizza.id, price: 500 }, { id: 'nope', price: 100 }]), 400);
+  rejects(() => store.setPrices([]), 400);
+  assert.equal(store.publicMenu().items.find((i) => i.id === pizza.id).price, 399); // nothing half-applied
+  assert.equal(store.createOrder(order({ items: [{ id: pizza.id, qty: 1 }] }), 'web').total, 399);
 });
 
 test('report sums positions and skips cancelled orders', () => {
