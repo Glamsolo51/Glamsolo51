@@ -1,10 +1,12 @@
 package com.glamsolo.phonehop.core
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -13,6 +15,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.Socket
 import java.net.SocketTimeoutException
+import java.util.concurrent.atomic.AtomicBoolean
 
 internal fun Closeable.closeQuietly() {
     try {
@@ -26,10 +29,17 @@ internal fun Closeable.closeQuietly() {
  * blocking reads and writes do not react to cancellation, so a watchdog closes the
  * resource when the scope is cancelled. [graceMillis] gives the blocking code a moment
  * to notice the cancellation itself (e.g. to tell the peer) before the hard close.
+ *
+ * An exception that [block] throws because the watchdog closed the resource (typically
+ * "Socket closed") is rethrown as a [CancellationException]. Without this, a coroutine
+ * that is merely being cancelled would *fail* with that IOException: the watchdog runs on
+ * another thread and can close the resource before cancellation has reached the nested
+ * scopes inside [block], so checks like `ensureActive()` there may still pass.
  */
 internal suspend fun <T> Closeable.closeOnCancel(graceMillis: Long = 0, block: suspend () -> T): T =
     coroutineScope {
         val blockDone = CompletableDeferred<Unit>()
+        val closedByCancel = AtomicBoolean(false)
         val watchdog = launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 awaitCancellation()
@@ -38,12 +48,20 @@ internal suspend fun <T> Closeable.closeOnCancel(graceMillis: Long = 0, block: s
                     if (graceMillis > 0) {
                         withContext(NonCancellable) { withTimeoutOrNull(graceMillis) { blockDone.await() } }
                     }
+                    closedByCancel.set(true)
                     closeQuietly()
                 }
             }
         }
         try {
             block()
+        } catch (e: Throwable) {
+            // This scope is the watchdog's parent, so it is already marked cancelled
+            // before the watchdog can run: `!isActive` is reliable here.
+            if (e !is CancellationException && (closedByCancel.get() || !isActive)) {
+                throw CancellationException("Closed because the coroutine was cancelled").apply { initCause(e) }
+            }
+            throw e
         } finally {
             blockDone.complete(Unit)
             watchdog.cancel()

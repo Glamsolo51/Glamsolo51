@@ -17,6 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
@@ -29,6 +30,10 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import java.io.File
+import java.io.FilterOutputStream
+import java.io.OutputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
 /**
@@ -47,6 +52,9 @@ class PhoneToPhoneTest {
     private lateinit var receiver: ReceiveController
     private lateinit var sender: SendController
 
+    /** Open by default; a test can close it to hold the receiver's disk writes. */
+    private val writeGate = WriteGate()
+
     @Before
     fun setUp() {
         TestFilesProvider.install()
@@ -60,7 +68,7 @@ class PhoneToPhoneTest {
             scope = scope,
             settings = receiverSettings,
             discovery = discovery,
-            fileStoreFactory = { DirectoryFileStore(context, { File(storage, it) }, scan = false) },
+            fileStoreFactory = { HeldFileStore(DirectoryFileStore(context, { File(storage, it) }, scan = false), writeGate) },
             apkBaseDir = apkDir,
             port = 0,
             startService = {},
@@ -71,6 +79,7 @@ class PhoneToPhoneTest {
 
     @After
     fun tearDown() {
+        writeGate.open()
         receiver.stop()
         scope.cancel()
     }
@@ -161,11 +170,19 @@ class PhoneToPhoneTest {
             val files = FileResolver.resolve(context.contentResolver, listOf(TestFilesProvider.register(big, "video/mp4")))
             receiver.start()
             val target = discovery.discover().first { it.isNotEmpty() }.single()
+            // Over loopback 60 MB can arrive in a fraction of a second, i.e. before the test
+            // gets to press "cancel". Hold the receiver's first disk write until it has: the
+            // socket buffers fill up and the sender is guaranteed to still be mid transfer.
+            writeGate.close()
             sender.send(target, emptyList(), files)
             receiver.state.first { it is ReceiveState.Incoming }
             receiver.accept()
+            assertTrue("Receiver never started writing", runInterruptible(Dispatchers.IO) { writeGate.awaitWriter(15_000) })
             sender.state.first { it is SendState.Transferring && it.progress.bytesDone > 0 }
             sender.cancel()
+            // cancel() marks the whole send job cancelled before it returns, so once the
+            // receiver drains the socket the sender stops at the next chunk and says why.
+            writeGate.open()
             assertTrue(sender.state.first { !it.isActive } is SendState.Cancelled)
             val failed = withTimeoutOrNull(15_000) { receiver.state.first { it is ReceiveState.Failed } } as? ReceiveState.Failed
                 ?: error("Receiver did not fail: ${receiver.state.value}\n" + threadDump())
@@ -185,6 +202,45 @@ class PhoneToPhoneTest {
             sender.send(PeerDevice("Ghost", "127.0.0.1", port), emptyList(), files)
             val failed = sender.state.first { !it.isActive } as SendState.Failed
             assertEquals(TransferException.Reason.CONNECTION_FAILED, failed.reason)
+        }
+    }
+}
+
+/** Lets a test hold every write to received files until it opens the gate again. */
+private class WriteGate {
+    @Volatile private var released = CountDownLatch(0)
+    private val writerArrived = CountDownLatch(1)
+
+    fun close() {
+        released = CountDownLatch(1)
+    }
+
+    fun open() = released.countDown()
+
+    /** Called by the receiver before each write. */
+    fun pass() {
+        writerArrived.countDown()
+        released.await()
+    }
+
+    fun awaitWriter(millis: Long): Boolean = writerArrived.await(millis, TimeUnit.MILLISECONDS)
+}
+
+private class HeldFileStore(private val delegate: FileStore, private val gate: WriteGate) : FileStore {
+    override fun create(relativePath: String, mimeType: String?): PendingFile {
+        val pending = delegate.create(relativePath, mimeType)
+        return object : PendingFile by pending {
+            override val output: OutputStream = object : FilterOutputStream(pending.output) {
+                override fun write(b: Int) {
+                    gate.pass()
+                    out.write(b)
+                }
+
+                override fun write(b: ByteArray, off: Int, len: Int) {
+                    gate.pass()
+                    out.write(b, off, len)
+                }
+            }
         }
     }
 }

@@ -101,7 +101,11 @@ class TransferServer(
                         val socket = try {
                             server.accept()
                         } catch (e: IOException) {
+                            // The watchdog of closeOnCancel closes the server socket on another
+                            // thread, possibly before cancellation reaches this nested scope, so
+                            // ensureActive() alone is not enough: a closed socket means "stopping".
                             currentCoroutineContext().ensureActive()
+                            if (server.isClosed) throw CancellationException("Server stopped").apply { initCause(e) }
                             throw e
                         }
                         launch {
@@ -254,6 +258,8 @@ class TransferServer(
             decision.await()
         } catch (e: CancellationException) {
             currentCoroutineContext().ensureActive()
+            // Closed by our own cancellation (see closeOnCancel), not by the sender leaving.
+            if (socket.isClosed) throw e
             null
         }
         watcher.cancelAndJoin()
