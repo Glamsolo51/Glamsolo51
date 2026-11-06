@@ -53,6 +53,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -102,7 +104,8 @@ fun MenuScreen(
     onOpenCart: () -> Unit,
     onOpenOrder: () -> Unit,
     onStaff: () -> Unit,
-    onRetry: () -> Unit,
+    onRetry: (server: String?) -> Unit,
+    server: String? = null,
 ) {
     val menu = state.menu
     val list = rememberLazyListState()
@@ -142,7 +145,17 @@ fun MenuScreen(
                 else Column(Modifier.padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(state.menuError, style = MaterialTheme.typography.bodyLarge)
                     Spacer(Modifier.height(16.dp))
-                    Button(onClick = onRetry) { Text("Повторить") }
+                    var address by rememberSaveable(server) { mutableStateOf(server.orEmpty()) }
+                    if (server != null) {
+                        OutlinedTextField(
+                            address, { address = it }, label = { Text("Адрес сервера") }, singleLine = true,
+                            supportingText = { Text("Его показывает сервер при запуске, например 192.168.1.5:8080") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+                            modifier = Modifier.fillMaxWidth().testTag("server"),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    Button(onClick = { onRetry(if (server != null) address else null) }) { Text(if (server != null) "Подключиться" else "Повторить") }
                 }
             }
             return@Scaffold

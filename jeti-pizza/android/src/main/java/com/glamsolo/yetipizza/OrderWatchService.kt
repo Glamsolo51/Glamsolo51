@@ -51,7 +51,7 @@ class OrderWatchService : Service() {
         while (scope.isActive) {
             val token = prefs.adminToken ?: return stopSelf()
             try {
-                val orders = Api(BuildConfig.SERVER_URL, token).orders()
+                val orders = Api(prefs.serverUrl, token).orders()
                 val waiting = orders.filter { it.status == "new" }
                 val fresh = waiting.filter { it.id > prefs.lastSeenOrderId }
                 fresh.forEach(::notifyNew)

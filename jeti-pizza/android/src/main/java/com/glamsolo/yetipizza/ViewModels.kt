@@ -38,7 +38,7 @@ data class ShopState(
 
 class ShopViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = Prefs(app)
-    private val api = Api(BuildConfig.SERVER_URL)
+    private val api get() = Api(prefs.serverUrl)
     private val _state = MutableStateFlow(ShopState(cart = prefs.cart, name = prefs.name, phone = prefs.phone, email = prefs.email))
     val state = _state.asStateFlow()
 
@@ -65,6 +65,14 @@ class ShopViewModel(app: Application) : AndroidViewModel(app) {
                 prefs.cart = _state.value.cart
             }
             .onFailure { e -> _state.update { it.copy(menuError = e.message) } }
+    }
+
+    val server get() = prefs.serverUrl
+
+    /** Test builds only: points the whole app (shop and staff) at another server, e.g. a computer on the same Wi-Fi. */
+    fun setServer(input: String) {
+        prefs.serverUrl = serverUrl(input)
+        loadMenu()
     }
 
     fun setQty(id: String, qty: Int) {
@@ -146,7 +154,7 @@ data class AdminState(
 
 class AdminViewModel(private val app: Application) : AndroidViewModel(app) {
     private val prefs = Prefs(app)
-    private val api = Api(BuildConfig.SERVER_URL, prefs.adminToken)
+    private val api get() = Api(prefs.serverUrl, prefs.adminToken)
     private val _state = MutableStateFlow(AdminState(loggedIn = prefs.adminToken != null, watching = prefs.watchOrders))
     val state = _state.asStateFlow()
     private var knownIds: Set<Long>? = null
@@ -169,7 +177,6 @@ class AdminViewModel(private val app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             runCatching { io { api.login(login.trim(), password) } }
                 .onSuccess { token ->
-                    api.token = token
                     prefs.adminToken = token
                     _state.update { it.copy(loggedIn = true, busy = false) }
                     setWatching(true) // the counter device should ring right away
@@ -185,7 +192,6 @@ class AdminViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun signOutLocally() {
         setWatching(false)
-        api.token = null
         prefs.adminToken = null
         knownIds = null
         _state.value = AdminState()

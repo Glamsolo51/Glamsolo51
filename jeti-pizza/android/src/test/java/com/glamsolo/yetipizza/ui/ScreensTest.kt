@@ -96,6 +96,16 @@ class ScreensTest {
         compose.onAllNodesWithText("345 ₽", substring = true).assertCountEquals(2) // card price and cart bar total
     }
 
+    @Test fun offlineTestBuildAsksForServer() {
+        var typed: String? = "not called"
+        show("menu-offline") {
+            MenuScreen(ShopState(menuError = "Нет связи с пиццерией. Проверьте интернет и попробуйте ещё раз."), { _, _ -> }, {}, {}, {}, { typed = it }, server = "http://10.0.2.2:8080")
+        }
+        compose.onNodeWithTag("server").assertExists()
+        compose.onNodeWithText("Подключиться").performClick()
+        assertEquals("http://10.0.2.2:8080", typed)
+    }
+
     @Test fun cartShowsCooldown() {
         show("cart-cooldown") {
             CartScreen(

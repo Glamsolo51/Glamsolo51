@@ -1,5 +1,6 @@
 // HTTP layer: the website, the staff cabinet and the JSON API used by both and by the Android app.
 import { createServer } from 'node:http';
+import { networkInterfaces } from 'node:os';
 import { readFileSync, mkdirSync, createReadStream, statSync } from 'node:fs';
 import { dirname, extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -162,4 +163,9 @@ createServer((req, res) => {
     console.error(e);
     send(res, 500, { error: 'Ошибка сервера. Попробуйте ещё раз или позвоните нам.' });
   });
-}).listen(PORT, () => console.log(`Йети Пицца: http://localhost:${PORT}  (кабинет: /admin)`));
+}).listen(PORT, () => {
+  // The address a phone on the same Wi-Fi types into the test app.
+  const lan = Object.values(networkInterfaces()).flat().filter((a) => a.family === 'IPv4' && !a.internal);
+  console.log(`Йети Пицца: http://localhost:${PORT}  (кабинет: /admin)`);
+  for (const a of lan) console.log(`С телефона в той же Wi-Fi сети: ${a.address}:${PORT}`);
+});

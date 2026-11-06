@@ -85,7 +85,8 @@ class MainActivity : ComponentActivity() {
                 onOpenCart = { shop.loadMenu(); screen = Screen.Cart },
                 onOpenOrder = { screen = Screen.Status },
                 onStaff = { screen = Screen.Staff },
-                onRetry = { shop.loadMenu() },
+                onRetry = { address -> if (address != null) shop.setServer(address) else shop.loadMenu() },
+                server = if (BuildConfig.SERVER_EDITABLE) shop.server else null,
             )
             Screen.Cart -> CartScreen(
                 state = shopState,

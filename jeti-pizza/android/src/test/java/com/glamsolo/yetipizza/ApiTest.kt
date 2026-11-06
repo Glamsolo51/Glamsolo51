@@ -47,6 +47,11 @@ class ApiTest {
         assertTrue(requests.single().startsWith("POST /api/admin/items/9 PATCH"))
     }
 
+    @Test fun `typed server address gets a scheme and loses the trailing slash`() {
+        assertEquals("http://192.168.1.5:8080", serverUrl(" 192.168.1.5:8080/ "))
+        assertEquals("https://pizza.example.ru", serverUrl("https://pizza.example.ru/"))
+    }
+
     @Test fun `no server means a readable error`() {
         val e = assertFailsWith<ApiException> { Api("http://127.0.0.1:1").menu() }
         assertEquals(0, e.status)

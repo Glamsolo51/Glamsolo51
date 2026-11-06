@@ -21,6 +21,8 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         buildConfigField("String", "SERVER_URL", "\"$serverUrl\"")
+        // Plain-http builds are for testing: they let you type the server address (a computer on the same Wi-Fi).
+        buildConfigField("boolean", "SERVER_EDITABLE", serverUrl.startsWith("http://").toString())
         manifestPlaceholders["cleartext"] = serverUrl.startsWith("http://").toString()
     }
 

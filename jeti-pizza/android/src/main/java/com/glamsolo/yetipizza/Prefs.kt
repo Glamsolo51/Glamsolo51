@@ -7,6 +7,10 @@ import org.json.JSONObject
 
 data class SavedOrder(val id: Long, val token: String)
 
+/** "192.168.1.5:8080/" typed on a phone becomes "http://192.168.1.5:8080". */
+fun serverUrl(input: String): String =
+    input.trim().trimEnd('/').let { if (it.startsWith("http://") || it.startsWith("https://")) it else "http://$it" }
+
 /** Small things the app remembers between launches: cart, contact details, own orders, staff session. */
 class Prefs(context: Context) {
     private val p = context.getSharedPreferences("yeti", Context.MODE_PRIVATE)
@@ -34,6 +38,10 @@ class Prefs(context: Context) {
             (0 until a.length()).map { SavedOrder(a.getJSONObject(it).getLong("id"), a.getJSONObject(it).getString("token")) }
         }.getOrDefault(emptyList())
         set(v) = p.edit { putString("orders", JSONArray(v.take(5).map { JSONObject().put("id", it.id).put("token", it.token) }).toString()) }
+
+    var serverUrl: String
+        get() = p.getString("serverUrl", null) ?: BuildConfig.SERVER_URL
+        set(v) = p.edit { putString("serverUrl", v) }
 
     var adminToken: String?
         get() = p.getString("adminToken", null)
