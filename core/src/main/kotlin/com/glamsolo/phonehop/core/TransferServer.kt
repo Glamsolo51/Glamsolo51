@@ -171,10 +171,13 @@ class TransferServer(
                 peerAddress = socket.inetAddress?.hostAddress.orEmpty(),
                 manifest = manifest,
             )
+            // The slot must be free *before* the sender hears the outcome: a sender that
+            // immediately starts its next transfer must not be told we are busy.
+            val release = { activeSession.compareAndSet(sessionJob, null); Unit }
             try {
-                serveSession(socket, input, out, request)
+                serveSession(socket, input, out, request, release)
             } finally {
-                activeSession.compareAndSet(sessionJob, null)
+                release()
             }
         }
     }
@@ -184,10 +187,12 @@ class TransferServer(
         input: DataInputStream,
         out: DataOutputStream,
         request: IncomingRequest,
+        release: () -> Unit,
     ) {
         val accepted = awaitDecision(socket, input, request) ?: return
         try {
             if (!accepted) {
+                release()
                 WireFormat.writeAnswer(out, Protocol.ANSWER_DECLINE, receiverName())
                 return
             }
@@ -199,11 +204,13 @@ class TransferServer(
         socket.soTimeout = Protocol.IO_TIMEOUT_MS
         try {
             val stats = receiveItems(input, request)
+            release()
             WireFormat.writeResult(out, Protocol.RESULT_OK)
             handler.onCompleted(request, stats)
         } catch (e: Exception) {
             if (!currentCoroutineContext().isActive) {
                 // Our own user pressed "cancel" (or left the screen): tell the sender why.
+                release()
                 runCatching {
                     WireFormat.writeResult(out, Protocol.RESULT_CANCELLED, "Cancelled by the receiver")
                     socket.drainBriefly(input, 500)
@@ -217,6 +224,7 @@ class TransferServer(
                     TransferException(Reason.CONNECTION_LOST, e.message, e)
                 else -> TransferException(Reason.STORAGE_ERROR, e.message, e)
             }
+            release()
             if (error.reason in REPORTABLE) {
                 runCatching {
                     WireFormat.writeResult(out, Protocol.RESULT_FAILED, error.reason.name)

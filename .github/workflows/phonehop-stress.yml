@@ -36,7 +36,7 @@ jobs:
         run: |
           for i in $(seq 1 "$RUNS"); do
             echo "::group::Run $i of $RUNS"
-            ./gradlew :core:test :app:testDebugUnitTest --tests '*PhoneToPhoneTest' --rerun-tasks --quiet \
+            ./gradlew :core:test :app:testDebugUnitTest --tests '*PhoneToPhoneTest' --rerun-tasks \
               || { echo "::endgroup::"; echo "::error::Failed on run $i of $RUNS"; exit 1; }
             echo "::endgroup::"
           done

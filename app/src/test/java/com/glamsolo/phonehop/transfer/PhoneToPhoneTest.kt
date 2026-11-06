@@ -177,8 +177,10 @@ class PhoneToPhoneTest {
             sender.send(target, emptyList(), files)
             receiver.state.first { it is ReceiveState.Incoming }
             receiver.accept()
+            // The receiver writing data means the transfer is under way. (Don't wait for the
+            // sender's progress here: with the receiver held, the sender soon blocks on a full
+            // socket and may not have published a progress update yet.)
             assertTrue("Receiver never started writing", runInterruptible(Dispatchers.IO) { writeGate.awaitWriter(15_000) })
-            sender.state.first { it is SendState.Transferring && it.progress.bytesDone > 0 }
             sender.cancel()
             // cancel() marks the whole send job cancelled before it returns, so once the
             // receiver drains the socket the sender stops at the next chunk and says why.
