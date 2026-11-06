@@ -21,4 +21,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "PhoneHop"
-include(":core", ":app")
+include(":core", ":app", ":pizza")
+// Йети Пицца: Android app for customers and staff; its server and website live in jeti-pizza/server.
+project(":pizza").projectDir = file("jeti-pizza/android")

@@ -18,3 +18,7 @@ keystore.properties
 *.jks
 *.keystore
 !app/src/test/**/*.keystore
+
+# Йети Пицца: local server data and secrets
+jeti-pizza/server/data/
+jeti-pizza/server/.env

@@ -1,0 +1,27 @@
+# Server plus Caddy, which gets and renews the HTTPS certificate for DOMAIN by itself.
+# Put DOMAIN and ADMIN_PASSWORD into .env next to this file, then: docker compose up -d --build
+services:
+  pizza:
+    build: .
+    restart: unless-stopped
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?put ADMIN_PASSWORD into .env}
+      TRUST_PROXY: "1"
+    volumes:
+      - pizza-data:/data
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?put DOMAIN into .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+volumes:
+  pizza-data:
+  caddy-data:

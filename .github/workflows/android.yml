@@ -31,17 +31,40 @@ jobs:
             echo "PHONEHOP_STOREFILE=release.jks" >> "$GITHUB_ENV"
           fi
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Йети Пицца: server tests, then a live server for the app's contract test (ApiTest).
+      - name: Pizza server tests
+        working-directory: jeti-pizza/server
+        run: |
+          npm test
+          DB_PATH=$RUNNER_TEMP/pizza.db ADMIN_PASSWORD=ci-password-123 npm start &
+          sleep 2
+
       - name: Test, lint and build
         env:
           PHONEHOP_STOREPASSWORD: ${{ secrets.PHONEHOP_STORE_PASSWORD }}
           PHONEHOP_KEYALIAS: ${{ secrets.PHONEHOP_KEY_ALIAS }}
           PHONEHOP_KEYPASSWORD: ${{ secrets.PHONEHOP_KEY_PASSWORD }}
-        run: ./gradlew :core:test :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
+          PIZZA_SERVER_URL: http://127.0.0.1:8080
+          PIZZA_ADMIN_PASSWORD: ci-password-123
+        # Set the repository variable PIZZA_SERVER_URL (Settings → Variables) to build the pizza app for your server.
+        run: >
+          ./gradlew :core:test :app:testDebugUnitTest :app:lintDebug :app:assembleRelease
+          :pizza:testDebugUnitTest :pizza:lintDebug :pizza:assembleRelease
+          -PpizzaServerUrl=${{ vars.PIZZA_SERVER_URL }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: PhoneHop-apk
           path: app/build/outputs/apk/release/*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YetiPizza-apk
+          path: jeti-pizza/android/build/outputs/apk/release/*.apk
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -50,3 +73,4 @@ jobs:
           path: |
             core/build/reports
             app/build/reports
+            jeti-pizza/android/build/reports

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Кабинет · Йети Пицца</title>
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#141212">
+  <link rel="icon" href="/img/logo.png">
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/admin/admin.css">
+  <script type="module" src="/admin/admin.js"></script>
+</head>
+<body class="admin">
+  <section id="login-view" class="login" hidden>
+    <form id="login-form" class="login-card">
+      <img src="/img/logo.png" alt="" width="64" height="64">
+      <h1>Кабинет пиццерии</h1>
+      <label>Логин<input name="login" autocomplete="username" required></label>
+      <label>Пароль<input name="password" type="password" autocomplete="current-password" required></label>
+      <p class="form-error" id="login-error" role="alert" hidden></p>
+      <button class="btn primary big">Войти</button>
+      <a class="muted" href="/">← На сайт</a>
+    </form>
+  </section>
+
+  <div id="app" hidden>
+    <header class="top admin-top">
+      <a class="brand" href="/" aria-label="Открыть сайт"><img src="/img/logo.png" alt="" width="36" height="36"><span>Кабинет</span></a>
+      <nav class="tabs" aria-label="Разделы кабинета">
+        <a href="#orders" data-tab="orders">Заказы <b class="badge" id="new-badge" hidden>0</b></a>
+        <a href="#menu" data-tab="menu">Меню</a>
+        <a href="#reports" data-tab="reports">Отчёты</a>
+        <a href="#settings" data-tab="settings">Настройки</a>
+      </nav>
+      <button class="btn small" id="sound" type="button" aria-pressed="false">🔕 Звук выкл.</button>
+    </header>
+    <p class="banner" id="paused-banner" hidden>Онлайн-заказы на паузе — покупатели не могут оформить заказ. <a href="#settings">Включить</a></p>
+
+    <main class="admin-main">
+      <section id="orders" class="tab-view" aria-labelledby="orders-title">
+        <div class="toolbar">
+          <h1 id="orders-title">Заказы</h1>
+          <div class="segmented" role="group" aria-label="Какие заказы показать">
+            <button type="button" data-mode="active" aria-pressed="true">Текущие</button>
+            <button type="button" data-mode="history" aria-pressed="false">История</button>
+          </div>
+          <input type="date" id="history-date" aria-label="День" hidden>
+          <span class="muted" id="orders-updated" aria-live="polite"></span>
+        </div>
+        <div id="board" class="board"></div>
+      </section>
+
+      <section id="menu" class="tab-view" aria-labelledby="menu-title" hidden>
+        <div class="toolbar">
+          <h1 id="menu-title">Меню и стоп-лист</h1>
+          <input type="search" id="menu-filter" placeholder="Найти позицию" aria-label="Найти позицию">
+          <span class="muted" id="stop-count"></span>
+        </div>
+        <p class="muted hint">Выключите позицию, когда она закончилась — покупатели увидят «Закончилось». Цена меняется сразу для новых заказов.</p>
+        <div id="menu-admin"></div>
+      </section>
+
+      <section id="reports" class="tab-view" aria-labelledby="reports-title" hidden>
+        <div class="toolbar">
+          <h1 id="reports-title">Отчёт по позициям</h1>
+          <div class="segmented" id="presets" role="group" aria-label="Период">
+            <button type="button" data-preset="today" aria-pressed="true">Сегодня</button>
+            <button type="button" data-preset="yesterday" aria-pressed="false">Вчера</button>
+            <button type="button" data-preset="week" aria-pressed="false">7 дней</button>
+            <button type="button" data-preset="month" aria-pressed="false">30 дней</button>
+          </div>
+          <label class="inline">с<input type="date" id="from"></label>
+          <label class="inline">по<input type="date" id="to"></label>
+          <button class="btn small" type="button" id="csv">Скачать CSV</button>
+        </div>
+        <div class="tiles" id="tiles"></div>
+        <p class="muted hint">Учитываются все заказы, кроме отменённых.</p>
+        <div class="table-wrap">
+          <table class="report">
+            <thead>
+              <tr>
+                <th scope="col">Позиция</th>
+                <th scope="col">Категория</th>
+                <th scope="col" class="num"><button type="button" data-sort="qty">Продано, шт.</button></th>
+                <th scope="col" class="num"><button type="button" data-sort="revenue">Выручка ↓</button></th>
+                <th scope="col">Доля выручки</th>
+              </tr>
+            </thead>
+            <tbody id="report-rows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="settings" class="tab-view narrow" aria-labelledby="settings-title" hidden>
+        <h1 id="settings-title">Настройки</h1>
+        <form id="settings-form" class="card">
+          <label class="switch-row">
+            <span><b>Принимать онлайн-заказы</b><small>Выключите, если кухня перегружена — сайт и приложение покажут, что заказы на паузе.</small></span>
+            <input type="checkbox" name="acceptingOrders" role="switch">
+          </label>
+          <label>Охлаждение между заказами, минут
+            <input type="number" name="cooldownMinutes" min="0" max="1440" step="1" required>
+            <small>С одного телефона или одной почты нельзя оформить новый заказ раньше, чем через это время. 0 — без ограничения. Отменённые заказы не считаются.</small>
+          </label>
+          <button class="btn primary">Сохранить</button>
+          <p class="ok" id="settings-ok" role="status" hidden>Сохранено</p>
+        </form>
+        <form id="password-form" class="card">
+          <h2>Пароль кабинета</h2>
+          <label>Текущий пароль<input type="password" name="current" autocomplete="current-password" required></label>
+          <label>Новый пароль<input type="password" name="next" autocomplete="new-password" minlength="8" required></label>
+          <p class="form-error" id="password-error" role="alert" hidden></p>
+          <button class="btn">Сменить пароль</button>
+          <small class="muted">После смены пароля все устройства выйдут из кабинета.</small>
+        </form>
+        <button class="btn danger" id="logout" type="button">Выйти из кабинета</button>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

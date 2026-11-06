@@ -109,6 +109,10 @@ keyPassword=...
 
 Для GitHub Actions добавьте секреты `PHONEHOP_KEYSTORE_BASE64` (вывод `base64 -w0 phonehop-release.jks`), `PHONEHOP_STORE_PASSWORD`, `PHONEHOP_KEY_ALIAS` и `PHONEHOP_KEY_PASSWORD`.
 
+## Йети Пицца
+
+В этом же репозитории лежит отдельный проект: сайт с самовывозом, Android-приложение и кабинет персонала для пиццерии «Йети Пицца». Он находится в папке [`jeti-pizza/`](jeti-pizza/README.md), приложение собирается модулем `:pizza`.
+
 ## Лицензии
 
 Шрифты Manrope и Unbounded распространяются по SIL Open Font License 1.1, см. [licenses/FONTS-OFL.txt](licenses/FONTS-OFL.txt).
