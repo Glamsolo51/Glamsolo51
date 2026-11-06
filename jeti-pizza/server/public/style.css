@@ -35,7 +35,7 @@ h2 { font-size: clamp(28px, 4vw, 44px); text-transform: uppercase; }
 .muted { color: var(--muted); }
 p, li { text-wrap: pretty; }
 :focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
-.skip { position: absolute; left: -999px; top: 8px; background: var(--brand); padding: 8px 12px; border-radius: 8px; z-index: 50; }
+.skip { position: absolute; left: -999px; top: 8px; background: var(--brand); color: #fff; padding: 8px 12px; border-radius: 8px; z-index: 50; }
 .skip:focus { left: 8px; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; animation: none !important; } }
 
@@ -141,7 +141,7 @@ svg[viewBox="0 0 48 48"] { width: 26px; height: 26px; fill: none; stroke: curren
 .price { font: 700 18px/1 var(--display); }
 .price small { font: 600 13px/1 var(--body); color: var(--muted); }
 .btn.add { min-height: 40px; border-color: var(--brand); color: var(--text); }
-.btn.add:hover { background: var(--brand); }
+.btn.add:hover { background: var(--brand); color: #fff; }
 
 /* About and contacts */
 .about { max-width: 1280px; margin: 0 auto; padding: 64px clamp(16px, 4vw, 48px); display: grid; grid-template-columns: .8fr 1.2fr; gap: 48px; align-items: center; border-top: 1px solid var(--line); }

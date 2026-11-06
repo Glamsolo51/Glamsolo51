@@ -74,7 +74,7 @@ input[role="switch"]:checked::after { transform: translateX(20px); background: #
 .tile { padding: 16px 18px; border-radius: 16px; background: var(--panel); border: 1px solid var(--line); }
 .tile span { color: var(--muted); font-weight: 600; font-size: 14px; }
 .tile b { display: block; margin-top: 6px; font: 700 26px/1.1 var(--display); }
-.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 16px; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 16px; padding: 8px; }
 table.report { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .report th, .report td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--line); }
 .report th { background: var(--panel); color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .04em; position: sticky; top: 0; }
